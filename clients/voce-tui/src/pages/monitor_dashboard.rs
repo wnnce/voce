@@ -46,7 +46,7 @@ impl Page for MonitorDashboard {
                 Constraint::Min(10),   // Full-width Traffic Chart
                 Constraint::Length(10), // Bottom Stats (Mem, GC, etc)
             ])
-            .split(f.size());
+            .split(f.area());
 
         // 1. Header
         f.render_widget(Paragraph::new(" [ESC/q] Back to List | SYSTEM WIDE MONITORING ").block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Cyan))), chunks[0]);

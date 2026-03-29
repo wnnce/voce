@@ -22,6 +22,7 @@ pub struct Subtitle {
     pub role: String,
     pub text: String,
     pub is_final: bool,
+    pub cached_lines: Vec<Line<'static>>,
 }
 
 pub struct Chat {
@@ -242,11 +243,42 @@ impl Chat {
     }
 
     fn push_subtitle(&mut self, role: String, text: String, is_final: bool) {
-        if let Some(last) = self.subtitles.back_mut() {
-            if last.role == role && !last.is_final { last.text = text; last.is_final = is_final; return; }
+        // 0. Normalize text to avoid common markdown parsing glitches (like \r\n or trailing whitespace)
+        let normalized_text = text.replace('\r', "").trim_end().to_string();
+        if normalized_text.is_empty() && !is_final {
+            return;
         }
+
+        // 1. Markdown 解析
+        let rendered = tui_markdown::from_str(&normalized_text);
+        let mut cached_lines: Vec<Line<'static>> = rendered.lines.into_iter().map(|line| {
+            let spans: Vec<Span<'static>> = line.spans.into_iter().map(|s| {
+                let mut span = Span::from(s.content.into_owned());
+                span.style = convert_style(s.style);
+                span
+            }).collect();
+            Line::from(spans)
+        }).collect();
+
+        // 2. 注入 Role 前缀 (保留配色)
+        if !cached_lines.is_empty() {
+            let color = if role == "user" { Color::Green } else { Color::Magenta };
+            let prefix = Span::styled(format!("{}: ", role), Style::default().fg(color).add_modifier(Modifier::BOLD));
+            cached_lines[0].spans.insert(0, prefix);
+        }
+
+        // 3. 更新或推入
+        if let Some(last) = self.subtitles.back_mut() {
+            if last.role == role && !last.is_final {
+                last.text = normalized_text;
+                last.is_final = is_final;
+                last.cached_lines = cached_lines;
+                return;
+            }
+        }
+        
         if self.subtitles.len() >= 50 { self.subtitles.pop_front(); }
-        self.subtitles.push_back(Subtitle { role, text, is_final });
+        self.subtitles.push_back(Subtitle { role, text: normalized_text, is_final, cached_lines });
     }
 }
 
@@ -270,7 +302,7 @@ impl Page for Chat {
                 Constraint::Min(10),   // Subtitles
                 Constraint::Length(3), // Footer
             ])
-            .split(f.size());
+            .split(f.area());
         
         let display_agent_speaking = self.agent_speaking || self.agent_playback_active;
 
@@ -319,30 +351,14 @@ impl Page for Chat {
             ])
             .split(chunks[2]);
 
-        // --- Subtitles Rendering (Deterministic Physical Wrapping) ---
+        // --- Subtitles Rendering (Markdown Display & Dynamic Wrapping) ---
         let area_width = mid_chunks[0].width.saturating_sub(2).max(1) as usize;
         let area_height = mid_chunks[0].height.saturating_sub(2).max(1);
+        
         let mut physical_lines = Vec::new();
-
         for s in &self.subtitles {
-            let (name, color) = if s.role == "user" { ("User: ", Color::Green) } else { ("Agent: ", Color::Magenta) };
-            let name_style = Style::default().fg(color).add_modifier(Modifier::BOLD);
-            
-            let mut current_line_spans = vec![Span::styled(name, name_style)];
-            let mut current_width = name.width();
-            
-            for c in s.text.chars() {
-                let cw = UnicodeWidthStr::width(c.to_string().as_str());
-                if current_width + cw > area_width {
-                    physical_lines.push(Line::from(current_line_spans));
-                    current_line_spans = Vec::new();
-                    current_width = 0;
-                }
-                current_line_spans.push(Span::raw(c.to_string()));
-                current_width += cw;
-            }
-            if !current_line_spans.is_empty() {
-                physical_lines.push(Line::from(current_line_spans));
+            for line in &s.cached_lines {
+                physical_lines.extend(self.wrap_line(line.clone(), area_width));
             }
         }
 
@@ -426,4 +442,89 @@ impl Chat {
             f.render_widget(Paragraph::new(Line::from(spans)), Rect::new(area.x, area.y + row as u16, area.width, 1));
         }
     }
+
+    /// Helper to wrap a Line (potentially with multiple Spans) to a specific width.
+    fn wrap_line<'a>(&self, line: Line<'a>, width: usize) -> Vec<Line<'a>> {
+        let mut result = Vec::new();
+        let mut current_spans = Vec::<Span<'a>>::new();
+        let mut current_width = 0;
+
+        for span in line.spans {
+            let style = span.style;
+            for c in span.content.chars() {
+                let char_str = c.to_string();
+                let cw = UnicodeWidthStr::width(char_str.as_str());
+
+                // Wrap if adding this char exceeds width
+                if current_width + cw > width && !current_spans.is_empty() {
+                    result.push(Line::from(std::mem::take(&mut current_spans)));
+                    current_width = 0;
+                }
+
+                // Append to existing span if style matches, otherwise push new one
+                if let Some(last) = current_spans.last_mut().filter(|s| s.style == style) {
+                    last.content.to_mut().push(c);
+                } else {
+                    current_spans.push(Span::styled(char_str, style));
+                }
+
+                current_width += cw;
+            }
+        }
+
+        if !current_spans.is_empty() {
+            result.push(Line::from(current_spans));
+        }
+
+        if result.is_empty() {
+            result.push(Line::from(""));
+        }
+        result
+    }
+}
+
+/// Helper to convert ratatui-core Style to ratatui Style.
+fn convert_style(s: ratatui_core::style::Style) -> Style {
+    let mut style = Style::default()
+        .add_modifier(convert_modifier(s.add_modifier))
+        .remove_modifier(convert_modifier(s.sub_modifier));
+    
+    if let Some(fg) = s.fg {
+        style = style.fg(convert_color(fg));
+    }
+    if let Some(bg) = s.bg {
+        style = style.bg(convert_color(bg));
+    }
+    style
+}
+
+/// Helper to convert ratatui-core Color to ratatui Color.
+fn convert_color(c: ratatui_core::style::Color) -> Color {
+    use ratatui_core::style::Color::*;
+    match c {
+        Reset => Color::Reset,
+        Black => Color::Black,
+        Red => Color::Red,
+        Green => Color::Green,
+        Yellow => Color::Yellow,
+        Blue => Color::Blue,
+        Magenta => Color::Magenta,
+        Cyan => Color::Cyan,
+        Gray => Color::Gray,
+        DarkGray => Color::DarkGray,
+        LightRed => Color::LightRed,
+        LightGreen => Color::LightGreen,
+        LightYellow => Color::LightYellow,
+        LightBlue => Color::LightBlue,
+        LightMagenta => Color::LightMagenta,
+        LightCyan => Color::LightCyan,
+        White => Color::White,
+        Rgb(r, g, b) => Color::Rgb(r, g, b),
+        Indexed(i) => Color::Indexed(i),
+    }
+}
+
+/// Helper to convert ratatui-core Modifier to ratatui Modifier.
+fn convert_modifier(m: ratatui_core::style::Modifier) -> Modifier {
+    Modifier::from_bits_truncate(m.bits())
 }
