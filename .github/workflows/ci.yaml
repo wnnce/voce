@@ -1,0 +1,128 @@
+name: Voce CI
+
+on:
+  push:
+    branches:
+      - main
+      - test
+      - dev
+      - "feature/*"
+      - "release/*"
+      - "fix/*"
+  pull_request:
+    branches:
+      - main
+      - test
+      - dev
+      - "feature/*"
+      - "release/*"
+      - "fix/*"
+
+jobs:
+  lint-backend:
+    name: Lint Backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache: false
+
+      - name: Prep Web Dist for Lint
+        run: mkdir -p clients/web/dist && touch clients/web/dist/index.html
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+  lint-web:
+    name: Lint Web
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install Web Deps
+        run: cd clients/web && pnpm install
+
+      - name: Run Web Lint
+        run: make lint-web
+
+  lint-tui:
+    name: Lint TUI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install TUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev
+
+      - name: Run TUI Lint
+        run: make lint-tui
+
+  test:
+    name: Run All Tests
+    needs: [lint-backend, lint-web, lint-tui]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Prep Web Dist for Test
+        run: mkdir -p clients/web/dist && touch clients/web/dist/index.html
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install TUI build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev
+
+      - name: Run Tests
+        run: make test

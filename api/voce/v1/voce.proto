@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package voce.v1;
+
+option go_package = "github.com/wnnce/voce/api/voce/v1;voce";
+
+// PacketEncode maps to internal/protocol/packet.go PacketEncode
+enum PacketEncode {
+  ENCODE_RAW = 0;
+  ENCODE_JSON = 1;
+}
+
+// PacketType maps to internal/protocol/packet.go PacketType
+enum PacketType {
+  TYPE_UNKNOWN = 0;
+  TYPE_AUDIO = 1;
+  TYPE_ERROR = 2;
+  TYPE_TEXT = 3;
+  TYPE_CLOSE = 4;
+  TYPE_INTERRUPTER = 17;        // 0x11
+  TYPE_CAPTION = 18;            // 0x12
+  TYPE_USER_SPEECH_START = 19;  // 0x13
+  TYPE_USER_SPEECH_END = 20;    // 0x14
+  TYPE_AGENT_SPEECH_START = 21; // 0x15
+  TYPE_AGENT_SPEECH_END = 22;   // 0x16
+}
+
+// Packet is the message structure for bidirectional streaming
+message Packet {
+  PacketType type = 1;
+  PacketEncode encode = 2; // Mapping internal/protocol PacketEncode
+  bytes payload = 3;
+  map<string, string> metadata = 4;
+}
+
+service VoceService {
+  // RealtimeStream is a bidirectional streaming RPC for audio and control messages
+  rpc RealtimeStream(stream Packet) returns (stream Packet);
+}

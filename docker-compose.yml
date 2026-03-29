@@ -1,0 +1,25 @@
+services:
+  voce:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: voce:latest
+    container_name: voce-server
+    restart: always
+    ports:
+      - "7001:7001"
+      - "7002:7002"
+    volumes:
+      - ./configs/config.yaml:/app/config.yaml:ro
+      - ./configs/workflows:/app/configs/workflows
+    healthcheck:
+      test:
+        ["CMD-SHELL", "wget -q --spider http://localhost:7001/health || exit 1"]
+      interval: 10s
+      timeout: 2s
+      retries: 3
+      start_period: 5s
+
+networks:
+  default:
+    name: voce-network

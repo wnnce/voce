@@ -1,0 +1,30 @@
+#!/bin/sh
+
+echo "Running golangci-lint..."
+
+files=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')
+
+if [ -z "$files" ]; then
+  echo "No Go files staged for commit, skipping golangci-lint."
+  exit 0
+fi
+
+dirs=$(echo "$files" | xargs -n1 dirname | sort -u)
+
+status=0
+
+for dir in $dirs; do
+  echo "Running golangci-lint in $dir ..."
+  golangci-lint run "$dir"
+  if [ $? -ne 0 ]; then
+    status=1
+  fi
+done
+
+if [ $status -ne 0 ]; then
+  echo "golangci-lint failed, aborting commit."
+  exit 1
+fi
+
+echo "golangci-lint passed."
+exit 0
