@@ -55,7 +55,7 @@ impl Page for PropertyEditor {
     }
 
     fn draw(&mut self, f: &mut Frame) {
-        let area = centered_rect(60, 30, f.size());
+        let area = centered_rect(60, 30, f.area());
         let input = Paragraph::new(self.input.as_str())
             .block(Block::default().title(format!(" 2. Config for {} ", self.workflow.name)).borders(Borders::ALL).border_style(Style::default().fg(Color::Green)))
             .wrap(Wrap { trim: false });

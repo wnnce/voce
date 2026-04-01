@@ -72,7 +72,7 @@ impl Page for WorkflowList {
     }
 
     fn draw(&mut self, f: &mut Frame) {
-        let area = centered_rect(60, 40, f.size());
+        let area = centered_rect(60, 40, f.area());
         let items: Vec<ListItem> = self.workflows.iter().map(|w| ListItem::new(format!(" {} ", w.name))).collect();
         let list = List::new(items)
             .block(Block::default().title(" 1. Select Workflow ").borders(Borders::ALL).border_style(Style::default().fg(Color::Cyan)))
