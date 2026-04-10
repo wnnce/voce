@@ -1,4 +1,4 @@
-.PHONY: all build build-web build-tui build-all test lint fmt clean help
+.PHONY: all build build-web build-tui build-all test lint fmt clean help deps
 
 # Configuration
 BINARY_NAME=voce
@@ -7,11 +7,14 @@ BIN_DIR=bin
 CMD_PATH=./cmd/voce
 WEB_DIR=clients/web
 TUI_DIR=clients/voce-tui
+LIBS_DIR=libs
+TEN_VAD_DIR=$(LIBS_DIR)/ten-vad
+TEN_VAD_REPO=https://github.com/TEN-framework/ten-vad.git
 
 all: build-all
 
-# 1. Backend Build (depends on web-build for embedding)
-build: build-web
+# 1. Backend Build (depends on web-build for embedding and deps)
+build: deps build-web
 	@echo "Building backend $(BINARY_NAME)..."
 	@mkdir -p $(BIN_DIR)
 	go build -o $(BIN_DIR)/$(BINARY_NAME) $(CMD_PATH)
@@ -28,13 +31,24 @@ build-tui:
 	@cd $(TUI_DIR) && cargo build --release
 	@cp $(TUI_DIR)/target/release/$(TUI_NAME) $(BIN_DIR)/
 
-# 4. Build Everything
+# 4. Dependencies
+deps: $(TEN_VAD_DIR)
+
+$(TEN_VAD_DIR):
+	@echo "Checking dependencies in $(LIBS_DIR)..."
+	@mkdir -p $(LIBS_DIR)
+	@if [ ! -d "$(TEN_VAD_DIR)" ]; then \
+		echo "Cloning ten-vad library..."; \
+		git clone $(TEN_VAD_REPO) $(TEN_VAD_DIR); \
+	fi
+
+# 5. Build Everything
 build-all: build build-tui
 
 # Testing
 test: test-backend test-tui
 
-test-backend:
+test-backend: deps
 	@echo "Running backend tests..."
 	go test -v ./...
 
@@ -45,7 +59,7 @@ test-tui:
 # Linting
 lint: lint-backend lint-web lint-tui
 
-lint-backend:
+lint-backend: deps
 	@echo "Running golangci-lint..."
 	@if command -v golangci-lint > /dev/null; then \
 		golangci-lint run ./...; \

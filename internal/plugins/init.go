@@ -13,4 +13,5 @@ import (
 	_ "github.com/wnnce/voce/internal/plugins/openai_tts"
 	_ "github.com/wnnce/voce/internal/plugins/qwen_asr"
 	_ "github.com/wnnce/voce/internal/plugins/sink"
+	_ "github.com/wnnce/voce/internal/plugins/ten_vad"
 )

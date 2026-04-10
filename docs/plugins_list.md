@@ -29,6 +29,7 @@ Voce 采用插件化服务，通过不同的插件组合实现多模态能力的
 ### 4. 流程控制与辅助 (Control & Utils)
 
 - **interrupter**: 实时打断控制器，负责发送打断信号。
+- **ten_vad**: TEN 原生 VAD 插件，用于 PCM16 16k 音频的实时检测。
 - **caption**: 字幕传输插件，负责实时下发 ASR 或 LLM 产生的文本内容。
 - **markdown_filter**: 实时过滤文本中的 Markdown 标记代码（如标题、粗体、链接、代码块等），通常用于 TTS 前置转换。
 - **sink**: 统一数据出口。

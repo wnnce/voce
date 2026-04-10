@@ -35,8 +35,8 @@ logs/*
 configs/workflows
 configs/workflows/*
 
-lib
-lib/*
+libs
+libs/*
 
 bin
 bin/*
