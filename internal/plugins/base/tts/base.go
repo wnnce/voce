@@ -2,12 +2,14 @@ package tts
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/wnnce/voce/internal/engine"
 	"github.com/wnnce/voce/internal/schema"
+	"github.com/wnnce/voce/pkg/audioproc"
 )
 
 // AudioStreamer manages audio chunking and signaling for TTS result output.
@@ -20,24 +22,61 @@ type AudioStreamer struct {
 	bufferSize int
 	started    atomic.Bool
 	buffer     []byte
+	resampler  *audioproc.Resampler
+}
+
+type AudioStreamerOption func(*AudioStreamer)
+
+// WithResampler configures the streamer to resample input data before chunking.
+func WithResampler(res *audioproc.Resampler) AudioStreamerOption {
+	return func(s *AudioStreamer) {
+		s.resampler = res
+	}
 }
 
 // NewAudioStreamer creates a new TTS result handler.
-func NewAudioStreamer(flow engine.Flow, sampleRate, channels int, duration time.Duration) *AudioStreamer {
+func NewAudioStreamer(flow engine.Flow, sampleRate, channels int, duration time.Duration, opts ...AudioStreamerOption) *AudioStreamer {
 	// sampleRate * channels * 2 * duration(Seconds)
 	bufferSize := int(float64(sampleRate*channels*2) * duration.Seconds())
-	return &AudioStreamer{
+	s := &AudioStreamer{
 		sampleRate: sampleRate,
 		channels:   channels,
 		flow:       flow,
 		bufferSize: bufferSize,
 		buffer:     make([]byte, bufferSize),
 	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Write transforms raw audio bytes into fixed-size Audio schemas and emits them.
 // It also handles AgentSpeechStart and AgentSpeechEnd signals automatically.
 func (s *AudioStreamer) Write(ctx context.Context, data []byte, isLast bool) {
+	if s.resampler == nil {
+		s.write(ctx, data, isLast)
+		return
+	}
+	if len(data) > 0 {
+		res, err := s.resampler.Resample(data)
+		if err != nil {
+			slog.ErrorContext(ctx, "resample failed", "error", err)
+		} else {
+			s.write(ctx, res, false)
+		}
+	}
+	if !isLast {
+		return
+	}
+	res, err := s.resampler.Flush()
+	if err != nil {
+		slog.ErrorContext(ctx, "resample failed", "error", err)
+	}
+	s.write(ctx, res, true)
+}
+
+func (s *AudioStreamer) write(ctx context.Context, data []byte, isLast bool) {
 	if !s.started.Load() && ctx.Err() == nil {
 		s.flow.SendSignal(schema.NewSignal(schema.SignalAgentSpeechStart).ReadOnly())
 		s.started.Store(true)
@@ -70,7 +109,6 @@ func (s *AudioStreamer) Write(ctx context.Context, data []byte, isLast bool) {
 }
 
 // Reset clears the internal state of the handler.
-// Typically called when an Interrupter signal is received.
 func (s *AudioStreamer) Reset() {
 	s.started.Store(false)
 	s.offset = 0
