@@ -211,6 +211,7 @@ const WorkflowPage = React.forwardRef<WorkflowPageHandle, object>((_, ref) => {
       ...currentWorkflow,
       name: wfMetadata.name || '',
       version: wfMetadata.version || '1.0.0',
+      head: wfMetadata.head || currentWorkflow.head,
     };
     await performSave(updatedWf);
     setWfModalOpen(false);
