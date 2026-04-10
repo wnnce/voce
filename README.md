@@ -123,6 +123,13 @@ For the complete list and configuration, see:
 
 ## 🚀 Quick Start
 
+### Prerequisites
+
+Voce requires **FFmpeg (libswresample and libavutil)** development libraries for audio processing:
+
+- **macOS**: `brew install ffmpeg`
+- **Ubuntu/Debian**: `sudo apt-get install libswresample-dev libavutil-dev`
+
 ### Local Build
 
 ```bash

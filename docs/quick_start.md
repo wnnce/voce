@@ -18,6 +18,7 @@ cd voce
 确保本地已安装以下工具：
 
 - **Go** (1.25+)
+- **FFmpeg** (libswresample & libavutil, e.g., `brew install ffmpeg` or `apt install libswresample-dev`)
 - **Node.js** & **pnpm** (用于构建前端工作台)
 - **Rust** & **Cargo** (用于构建 TUI 客户端)
 
