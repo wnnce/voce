@@ -1,7 +1,7 @@
 import { memo, useMemo } from 'react';
 import { Handle, Position, useEdges, useNodes, useNodeId, type NodeProps } from 'reactflow';
-import { Paper, Typography, Box, useTheme, Divider, Tooltip } from '@mui/material';
-import { Workflow, Terminal, Database, Mic, Video } from 'lucide-react';
+import { Paper, Typography, Box, useTheme, Divider, Tooltip, IconButton, Chip } from '@mui/material';
+import { Workflow, Terminal, Database, Mic, Video, Crown } from 'lucide-react';
 import { EventType, type PluginInfo } from '@/types/workflow';
 
 const TYPE_COLORS = {
@@ -23,6 +23,8 @@ interface WorkflowNodeData {
   plugin: string;
   config: Record<string, unknown>;
   pluginInfo?: PluginInfo;
+  isHead?: boolean;
+  onSetAsHead?: () => void;
 }
 
 const CustomNode = ({ data, selected }: NodeProps<WorkflowNodeData>) => {
@@ -113,15 +115,46 @@ const CustomNode = ({ data, selected }: NodeProps<WorkflowNodeData>) => {
           width: 28, 
           height: 28, 
           borderRadius: '8px', 
-          bgcolor: 'primary.main', 
-          color: 'white' 
+          bgcolor: data.isHead ? 'warning.main' : 'primary.main', 
+          color: 'white',
+          boxShadow: data.isHead ? '0 0 8px rgba(237, 108, 2, 0.4)' : 'none'
         }}>
-          <Workflow size={18} />
+          {data.isHead ? <Crown size={18} /> : <Workflow size={18} />}
         </Box>
         <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Typography variant="body2" fontWeight="800" noWrap>
-            {data.name || 'Untitled Node'}
-          </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography variant="body2" fontWeight="800" noWrap sx={{ flex: 1 }}>
+              {data.name || 'Untitled Node'}
+            </Typography>
+            {data.isHead && (
+              <Chip 
+                label="HEAD" 
+                size="small" 
+                color="warning" 
+                sx={{ 
+                  height: 16, 
+                  fontSize: '0.6rem', 
+                  fontWeight: 900, 
+                  borderRadius: '4px',
+                  '& .MuiChip-label': { px: 0.5 }
+                }} 
+              />
+            )}
+            {!data.isHead && data.onSetAsHead && (
+              <Tooltip title="Set as Head">
+                <IconButton 
+                  size="small" 
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    data.onSetAsHead?.();
+                  }}
+                  sx={{ p: 0.2, color: 'text.disabled', '&:hover': { color: 'warning.main' } }}
+                >
+                  <Crown size={14} />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
           <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', display: 'block', lineHeight: 1 }}>
             {data.plugin || 'Generic'}
           </Typography>

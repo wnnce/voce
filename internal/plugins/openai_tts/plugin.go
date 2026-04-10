@@ -15,10 +15,11 @@ import (
 	"github.com/wnnce/voce/internal/engine"
 	"github.com/wnnce/voce/internal/plugins/base/tts"
 	"github.com/wnnce/voce/internal/schema"
+	"github.com/wnnce/voce/pkg/audioproc"
 )
 
 type OpenAIConfig struct {
-	ApiKey  string  `json:"api_key" jsonschema:"title=API Key,description=OpenAI Secret Key"`
+	ApiKey  string  `json:"api_key" jsonschema:"title=API Key,description=OpenAI Api Key"`
 	BaseURL string  `json:"base_url" jsonschema:"title=Base URL,default=https://api.openai.com/v1"`
 	Model   string  `json:"model" jsonschema:"title=Model,default=tts-1"`
 	Voice   string  `json:"voice" jsonschema:"title=Voice,default=alloy"`
@@ -44,11 +45,11 @@ type TTSRequest struct {
 
 type Plugin struct {
 	engine.BuiltinPlugin
-	streamer *tts.AudioStreamer
-	client   *http.Client
-	cfg      *OpenAIConfig
-	buffer   []byte
-	outBuf   []byte
+	streamer  *tts.AudioStreamer
+	client    *http.Client
+	cfg       *OpenAIConfig
+	buffer    []byte
+	resampler *audioproc.Resampler
 }
 
 func NewPlugin(cfg *OpenAIConfig) engine.Plugin {
@@ -60,14 +61,25 @@ func NewPlugin(cfg *OpenAIConfig) engine.Plugin {
 		client: client,
 		cfg:    cfg,
 		buffer: make([]byte, 4096),
-		outBuf: make([]byte, 4096),
 	}
 	return engine.NewMultiTrackPlugin(plg, engine.WithPayloadTrack(128, engine.BlockIfFull, schema.SignalInterrupter))
 }
 
 func (p *Plugin) OnStart(ctx context.Context, flow engine.Flow) error {
-	p.streamer = tts.NewAudioStreamer(flow, engine.AudioSampleRate, engine.AudioChannels, 100*time.Millisecond)
+	var err error
+	p.resampler, err = audioproc.NewResampler(24000, 1, engine.AudioSampleRate, engine.AudioChannels)
+	if err != nil {
+		return err
+	}
+	p.streamer = tts.NewAudioStreamer(flow, engine.AudioSampleRate, engine.AudioChannels, 100*time.Millisecond,
+		tts.WithResampler(p.resampler))
 	return nil
+}
+
+func (p *Plugin) OnStop() {
+	if p.resampler != nil {
+		p.resampler.Close()
+	}
 }
 
 func (p *Plugin) OnSignal(ctx context.Context, flow engine.Flow, signal schema.Signal) {
@@ -105,10 +117,7 @@ func (p *Plugin) OnPayload(ctx context.Context, flow engine.Flow, payload schema
 	for {
 		read, err := response.Body.Read(p.buffer)
 		if read > 0 {
-			res := p.downsample24To16(read)
-			if len(res) > 0 {
-				p.streamer.Write(ctx, res, false)
-			}
+			p.streamer.Write(ctx, p.buffer[:read], false)
 		}
 		if err != nil {
 			if !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
@@ -132,23 +141,6 @@ func (p *Plugin) createRequest(ctx context.Context, text string) *http.Request {
 	request.Header.Set("Authorization", "Bearer "+p.cfg.ApiKey)
 	request.Header.Set("Content-Type", "application/json")
 	return request
-}
-func (p *Plugin) downsample24To16(read int) []byte {
-	samples := read / 2
-	outSamples := samples * 2 / 3
-	if outSamples == 0 {
-		return nil
-	}
-
-	needed := outSamples * 2
-	p.outBuf = p.outBuf[:needed]
-
-	for i := 0; i < outSamples; i++ {
-		srcIdx := i * 3 / 2
-		p.outBuf[i*2] = p.buffer[srcIdx*2]
-		p.outBuf[i*2+1] = p.buffer[srcIdx*2+1]
-	}
-	return p.outBuf
 }
 
 func init() {
