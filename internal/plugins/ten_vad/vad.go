@@ -12,7 +12,7 @@ package ten_vad
 #cgo darwin LDFLAGS: -F${SRCDIR}/../../../libs/ten-vad/lib/macOS -framework ten_vad -Wl,-rpath,${SRCDIR}/../../../libs/ten-vad/lib/macOS
 
 // Linux AMD64
-#cgo linux,amd64 LDFLAGS: -L${SRCDIR}/../../../libs/ten-vad/lib/Linux/x64 -lten_vad -Wl,-rpath,'$ORIGIN'/../../../libs/ten-vad/lib/Linux/x64
+#cgo linux,amd64 LDFLAGS: -L${SRCDIR}/../../../libs/ten-vad/lib/Linux/x64 -lten_vad -Wl,-rpath,${SRCDIR}/../../../libs/ten-vad/lib/Linux/x64
 
 // Windows AMD64
 // For Windows, the .dll needs to be in the PATH or alongside the .exe at runtime.
