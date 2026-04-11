@@ -1,0 +1,21 @@
+name: Setup Backend Environment
+description: Installs Go, system dependencies, and project dependencies
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Go
+      uses: actions/setup-go@v6
+      with:
+        go-version: "1.25"
+        cache: true
+
+    - name: Install System Dependencies
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libswresample-dev libavutil-dev libc++-dev libc++abi-dev
+        make deps
+
+    - name: Prep Web Dist for Embedding
+      shell: bash
+      run: mkdir -p clients/web/dist && touch clients/web/dist/index.html

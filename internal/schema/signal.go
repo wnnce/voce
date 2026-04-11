@@ -1,11 +1,13 @@
 package schema
 
 const (
-	SignalInterrupter      = "interrupter"
-	SignalAgentSpeechStart = "agent_speech_start"
-	SignalAgentSpeechEnd   = "agent_speech_end"
-	SignalUserSpeechStart  = "user_speech_start"
-	SignalUserSpeechEnd    = "user_speech_end"
+	SignalInterrupter        = "interrupter"
+	SignalAgentSpeechStart   = "agent_speech_start"
+	SignalAgentSpeechEnd     = "agent_speech_end"
+	SignalUserSpeechStart    = "user_speech_start"
+	SignalUserSpeechEnd      = "user_speech_end"
+	SignalVadUserSpeechStart = "vad_user_speech_start"
+	SignalVadUserSpeechEnd   = "vad_user_speech_end"
 )
 
 // Signal is the read-only interface for control/event objects passed between nodes.

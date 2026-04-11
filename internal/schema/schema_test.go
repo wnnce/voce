@@ -2,6 +2,7 @@ package schema
 
 import (
 	"bytes"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -246,4 +247,89 @@ func TestBuiltinProperties_CopyTo(t *testing.T) {
 		_, ok := dst.Get("k3")
 		assert.False(t, ok, "dst should not be affected by changes in src")
 	})
+}
+
+func BenchmarkBuiltinPropertiesGetVsMap(b *testing.B) {
+	scenarios := []struct {
+		name        string
+		size        int
+		targetKey   string
+		withShadow  bool
+		expectFound bool
+	}{
+		{name: "hit_tail/n4", size: 4, targetKey: "k3", expectFound: true},
+		{name: "hit_tail/n8", size: 8, targetKey: "k7", expectFound: true},
+		{name: "hit_tail/n16", size: 16, targetKey: "k15", expectFound: true},
+		{name: "hit_tail/n32", size: 32, targetKey: "k31", expectFound: true},
+		{name: "hit_head/n4", size: 4, targetKey: "k0", expectFound: true},
+		{name: "hit_head/n8", size: 8, targetKey: "k0", expectFound: true},
+		{name: "hit_head/n16", size: 16, targetKey: "k0", expectFound: true},
+		{name: "hit_head/n32", size: 32, targetKey: "k0", expectFound: true},
+		{name: "hit_middle/n4", size: 4, targetKey: "k2", expectFound: true},
+		{name: "hit_middle/n8", size: 8, targetKey: "k4", expectFound: true},
+		{name: "hit_middle/n16", size: 16, targetKey: "k8", expectFound: true},
+		{name: "hit_middle/n32", size: 32, targetKey: "k16", expectFound: true},
+		{name: "miss/n4", size: 4, targetKey: "missing", expectFound: false},
+		{name: "miss/n8", size: 8, targetKey: "missing", expectFound: false},
+		{name: "miss/n16", size: 16, targetKey: "missing", expectFound: false},
+		{name: "miss/n32", size: 32, targetKey: "missing", expectFound: false},
+		{name: "shadowed_key/n4", size: 4, targetKey: "k1", withShadow: true, expectFound: true},
+		{name: "shadowed_key/n8", size: 8, targetKey: "k3", withShadow: true, expectFound: true},
+		{name: "shadowed_key/n16", size: 16, targetKey: "k7", withShadow: true, expectFound: true},
+		{name: "shadowed_key/n32", size: 32, targetKey: "k15", withShadow: true, expectFound: true},
+	}
+
+	for _, scenario := range scenarios {
+		props := newBenchmarkProperties(scenario.size, scenario.targetKey, scenario.withShadow)
+		index := newBenchmarkPropertyMap(props)
+
+		b.Run("slice/"+scenario.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				_, ok := props.Get(scenario.targetKey)
+				if ok != scenario.expectFound {
+					b.Fatalf("unexpected found state for key %q", scenario.targetKey)
+				}
+			}
+		})
+
+		b.Run("map/"+scenario.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				_, ok := index[scenario.targetKey]
+				if ok != scenario.expectFound {
+					b.Fatalf("unexpected found state for key %q", scenario.targetKey)
+				}
+			}
+		})
+	}
+}
+
+func newBenchmarkProperties(size int, shadowKey string, withShadow bool) *builtinProperties {
+	props := &builtinProperties{
+		entries: make([]entry, 0, size+1),
+	}
+	for i := 0; i < size; i++ {
+		props.entries = append(props.entries, entry{
+			key: "k" + strconv.Itoa(i),
+			val: i,
+		})
+	}
+	if withShadow {
+		props.entries = append(props.entries, entry{
+			key: shadowKey,
+			val: "shadowed",
+		})
+	}
+	return props
+}
+
+func newBenchmarkPropertyMap(props *builtinProperties) map[string]any {
+	index := make(map[string]any, len(props.entries))
+	for _, item := range props.entries {
+		index[item.key] = item.val
+	}
+	return index
 }

@@ -2,7 +2,7 @@ name: Voce CI
 
 on:
   push:
-    branches:
+    branches: &branches
       - main
       - test
       - dev
@@ -10,13 +10,7 @@ on:
       - "release/*"
       - "fix/*"
   pull_request:
-    branches:
-      - main
-      - test
-      - dev
-      - "feature/*"
-      - "release/*"
-      - "fix/*"
+    branches: *branches
 
 jobs:
   lint-backend:
@@ -25,22 +19,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: "1.25"
-          cache: false
-
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libswresample-dev libavutil-dev
-
-      - name: Prep Web Dist for Lint
-        run: mkdir -p clients/web/dist && touch clients/web/dist/index.html
-
-      - name: golangci-lint
+      - name: Setup Backend Environment
+        uses: ./.github/actions/setup-backend
+      - name: Backend Lint
         uses: golangci/golangci-lint-action@v9
         with:
           version: latest
@@ -51,21 +32,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
-
-      - name: Install Web Deps
-        run: cd clients/web && pnpm install
-
-      - name: Run Web Lint
+      - name: Setup Web Environment
+        uses: ./.github/actions/setup-web
+      - name: Web Lint
         run: make lint-web
 
   lint-tui:
@@ -74,65 +43,33 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install TUI build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev
-
-      - name: Run TUI Lint
+      - name: Setup TUI Environment
+        uses: ./.github/actions/setup-tui
+      - name: TUI Lint
         run: make lint-tui
 
-  test:
-    name: Run All Tests
+  test-backend:
+    name: Test Backend
     needs: [lint-backend, lint-web, lint-tui]
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
+      - name: Setup Backend Environment
+        uses: ./.github/actions/setup-backend
+      - name: Backend Test
+        run: make test-backend
 
-      - name: Setup Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: "1.25"
-          cache: true
-
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libswresample-dev libavutil-dev
-
-      - name: Prep Web Dist for Test
-        run: mkdir -p clients/web/dist && touch clients/web/dist/index.html
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install TUI build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev
-
-      - name: Run Tests
-        run: make test
+  test-tui:
+    name: Test TUI
+    needs: [lint-backend, lint-web, lint-tui]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+      - name: Setup TUI Environment
+        uses: ./.github/actions/setup-tui
+      - name: TUI Test
+        run: make test-tui
