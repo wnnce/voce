@@ -23,6 +23,8 @@ const (
 	SessionClosed
 )
 
+// Session represents an end-to-end user conversation session.
+// It maps a client WebSocket connection to a specific backend machine.
 type Session struct {
 	key          protocol.SessionKey
 	conn         *Connection
@@ -49,6 +51,7 @@ func gatewayPacketTypeName(t protocol.PacketType) string {
 	}
 }
 
+// NewSession creates a new session mapping for the given key.
 func NewSession(key protocol.SessionKey, conn *Connection, machine *Machine) *Session {
 	s := &Session{
 		key:       key,
@@ -64,6 +67,7 @@ func (s *Session) State() SessionState {
 	return SessionState(s.state.Load())
 }
 
+// Acquire attempts to transition the session from Idle to Pending.
 func (s *Session) Acquire() bool {
 	return s.state.CompareAndSwap(int32(SessionIdle), int32(SessionPending))
 }
@@ -77,6 +81,7 @@ func (s *Session) Release() bool {
 	return true
 }
 
+// Close terminates the session and notifies both client and upstream machine.
 func (s *Session) Close() {
 	if s.State() == SessionClosed {
 		return
@@ -106,7 +111,7 @@ func (s *Session) OnClientOpen(socket *websocket.Conn) {
 	s.lastActiveAt.Store(time.Now().UnixMilli())
 	s.client = socket
 
-	// 如果 count > 1，说明是异常断开后的“恢复”连接，需要通知后端 Resume
+	// If count > 1, this is a reconnect. Notify the backend to resume.
 	if count > 1 && s.conn != nil {
 		packet := protocol.AcquirePacket()
 		defer protocol.ReleasePacket(packet)

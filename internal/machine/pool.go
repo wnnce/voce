@@ -13,11 +13,14 @@ const (
 	prime32  = 16777619
 )
 
+// ConnectionManager manages a pool of gateway connections on the machine side.
+// It matches the pool structure on the gateway side to ensure session affinity.
 type ConnectionManager struct {
 	slots []*Connection
 	sm    *engine.SessionManager
 }
 
+// NewConnectionManager initializes a new ConnectionManager and sets up session deletion monitoring.
 func NewConnectionManager(sm *engine.SessionManager, size int) *ConnectionManager {
 	cm := &ConnectionManager{
 		sm: sm,

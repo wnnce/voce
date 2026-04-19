@@ -14,16 +14,22 @@ import (
 	"github.com/wnnce/voce/internal/protocol"
 )
 
+// MachineState represents the current health and availability status of a backend worker.
 type MachineState int32
 
 const (
+	// MachineStateActive means the machine is fully connected and ready to handle sessions.
 	MachineStateActive MachineState = iota + 1
+	// MachineStateSuspended means the machine control connection is lost, but sessions may still be buffered.
 	MachineStateSuspended
+	// MachineStateTerminated means the machine has been decommissioned and resources cleaned up.
 	MachineStateTerminated
 )
 
 var ErrMachineNotActive = errors.New("machine is not active")
 
+// Machine represents a backend worker pod that executes workflows.
+// It maintains a control socket and a pool of data connections.
 type Machine struct {
 	ID            string
 	Host          string

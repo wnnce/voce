@@ -34,17 +34,19 @@ var (
 	})
 )
 
+// Connection represents a persistent WebSocket connection to a machine's data pool.
 type Connection struct {
 	machineID  string
 	ctx        context.Context
 	addr       *url.URL
 	dialer     *websocket.Dialer
 	state      atomic.Int32
-	socket     atomic.Pointer[websocket.Conn] // *websocket.Conn
+	socket     atomic.Pointer[websocket.Conn]
 	dispatcher MessageDispatcher
 	slot       int
 }
 
+// NewConnection creates and initializes a new pool connection.
 func NewConnection(
 	ctx context.Context,
 	engine *nbhttp.Engine,
@@ -83,6 +85,7 @@ func NewConnection(
 	return conn, nil
 }
 
+// Connect initiates the WebSocket handshake.
 func (c *Connection) Connect() error {
 	q := c.addr.Query()
 	q.Set("slot", strconv.Itoa(c.slot))
@@ -97,6 +100,7 @@ func (c *Connection) Connect() error {
 	return nil
 }
 
+// reconnectLoop handles exponential backoff reconnection when a connection drops.
 func (c *Connection) reconnectLoop() {
 	backoff := 500 * time.Millisecond
 	for {
@@ -104,7 +108,7 @@ func (c *Connection) reconnectLoop() {
 			return
 		}
 		if err := c.Connect(); err != nil {
-			// 如果拨号失败，进行指数退避等待
+			// Exponential backoff
 			select {
 			case <-c.ctx.Done():
 				return
@@ -129,7 +133,7 @@ func (c *Connection) OnMessage(socket *websocket.Conn, messageType websocket.Mes
 }
 
 func (c *Connection) OnClose(socket *websocket.Conn, err error) {
-	// 主动关闭的忽略处理
+	// Ignore if already closing or closed
 	if !c.state.CompareAndSwap(int32(protocol.ConnectionActive), int32(protocol.ConnectionConnecting)) {
 		return
 	}

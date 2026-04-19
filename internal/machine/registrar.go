@@ -11,6 +11,8 @@ import (
 	"github.com/lxzan/gws"
 )
 
+// Registrar handles the machine registration with the gateway.
+// It maintains a control connection to the gateway to signal its availability and health.
 type Registrar struct {
 	gws.BuiltinEventHandler
 	ctx         context.Context

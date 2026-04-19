@@ -13,6 +13,8 @@ const (
 	prime32  = 16777619
 )
 
+// ConnectionPool manages a set of WebSocket connections to a machine.
+// It uses consistent hashing to ensure a session always uses the same physical connection.
 type ConnectionPool struct {
 	slots  []*Connection
 	closed atomic.Bool
@@ -40,7 +42,7 @@ func NewConnectionPool(
 	return p, nil
 }
 
-// Select 获取该 SessionKey 对应的固定连接
+// Select picks a connection from the pool based on the session key.
 func (p *ConnectionPool) Select(key protocol.SessionKey) *Connection {
 	if p.closed.Load() || len(p.slots) == 0 {
 		return nil
@@ -56,7 +58,7 @@ func (p *ConnectionPool) Select(key protocol.SessionKey) *Connection {
 	return p.slots[idx]
 }
 
-// Shutdown 关闭池中所有连接
+// Shutdown closes all connections in the pool.
 func (p *ConnectionPool) Shutdown() {
 	if p.closed.Swap(true) {
 		return

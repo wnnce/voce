@@ -22,6 +22,7 @@ import (
 	"github.com/wnnce/voce/pkg/result"
 )
 
+// GatewayHandler handles incoming HTTP and WebSocket requests from clients and backend machines.
 type GatewayHandler struct {
 	mm *MachineManager
 	sm *SessionManager

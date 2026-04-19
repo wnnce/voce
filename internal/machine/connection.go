@@ -11,6 +11,7 @@ import (
 
 type MessageHandler func(key protocol.SessionKey, packet *protocol.Packet)
 
+// Connection represents an inbound pool connection from the gateway to the machine.
 type Connection struct {
 	gws.BuiltinEventHandler
 	socket atomic.Pointer[gws.Conn]
@@ -33,6 +34,7 @@ func machinePacketTypeName(t protocol.PacketType) string {
 	}
 }
 
+// NewConnection creates a new pool connection instance.
 func NewConnection(handle MessageHandler) *Connection {
 	return &Connection{
 		handle: handle,

@@ -7,7 +7,7 @@ import (
 	"github.com/wnnce/voce/pkg/httpx"
 )
 
-// NewRouter 构造并返回网关路由
+// NewRouter initializes and returns the primary gateway router.
 func NewRouter(h *GatewayHandler) http.Handler {
 	r := chi.NewRouter()
 

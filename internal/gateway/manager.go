@@ -21,6 +21,8 @@ var (
 
 const defaultMachinePort = 7001
 
+// MachineManager handles the lifecycle and health of backend workers (machines).
+// It maintains a registry of active machines and performs periodic heartbeats and cleanup.
 type MachineManager struct {
 	ctx    context.Context
 	config config.GatewayServerConfig
@@ -30,6 +32,7 @@ type MachineManager struct {
 	engine *nbhttp.Engine
 }
 
+// NewMachineManager initializes a new MachineManager and starts its background routines.
 func NewMachineManager(ctx context.Context, cfg config.GatewayServerConfig, sm *SessionManager, engine *nbhttp.Engine) *MachineManager {
 	m := &MachineManager{
 		ctx:    ctx,
