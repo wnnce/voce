@@ -12,6 +12,14 @@ import (
 	"github.com/wnnce/voce/pkg/result"
 )
 
+type MonitorHandler struct {
+	sm *engine.SessionManager
+}
+
+func NewMonitorHandler(sm *engine.SessionManager) *MonitorHandler {
+	return &MonitorHandler{sm: sm}
+}
+
 type MonitorStats struct {
 	// Go Runtime Metrics
 	Goroutines   int    `json:"goroutines"`
@@ -39,12 +47,12 @@ type MonitorStats struct {
 	Timestamp int64 `json:"timestamp"`
 }
 
-func GetMonitorStats(w http.ResponseWriter, r *http.Request) error {
+func (h *MonitorHandler) GetMonitorStats(w http.ResponseWriter, r *http.Request) error {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
 	conn, in, out := realtime.GetMonitorCounters()
-	sess := int64(engine.DefaultSessionManager.Count()) // Direct call to global manager
+	sess := int64(h.sm.Count())
 
 	stats := &MonitorStats{
 		Goroutines:   runtime.NumGoroutine(),

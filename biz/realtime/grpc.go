@@ -31,8 +31,12 @@ func (s *StreamService) RealtimeStream(stream pb.VoceService_RealtimeStreamServe
 		return status.Error(codes.InvalidArgument, "missing session_id in metadata")
 	}
 	sessionId := md.Get("session_id")[0]
+	sessionKey, err := protocol.ParseSessionKey(sessionId)
+	if err != nil {
+		return status.Error(codes.InvalidArgument, "invalid session_id")
+	}
 
-	session, ok := s.manager.LoadSession(sessionId)
+	session, ok := s.manager.LoadSession(sessionKey)
 	if !ok {
 		return status.Errorf(codes.NotFound, "session %s not found", sessionId)
 	}
@@ -139,7 +143,7 @@ func (s *StreamService) readLoop(
 			}
 		case protocol.TypeClose:
 			slog.InfoContext(ctx, "client requested close via packet")
-			s.manager.RemoveSession(session.ID)
+			s.manager.RemoveSession(session.Key)
 			return
 		}
 	}

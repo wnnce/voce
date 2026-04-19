@@ -43,6 +43,8 @@ require (
 	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.9 // indirect
+	github.com/lesismal/llib v1.2.2 // indirect
+	github.com/lesismal/nbio v1.6.9 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

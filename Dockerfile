@@ -31,12 +31,13 @@ RUN go mod download
 COPY . .
 RUN git lfs install && make deps
 
-# Embed frontend and build the backend binary
+# Embed frontend and build the backend binaries
 COPY --from=frontend-builder /app/clients/web/dist ./clients/web/dist
 RUN GOOS=linux go build -v -ldflags="-w -s" -o voce ./cmd/voce
+RUN GOOS=linux go build -v -ldflags="-w -s" -o voce-gateway ./cmd/gateway
 
-# ─── Stage 3: Final Production Image ──────────────────────────────────────────
-FROM debian:bookworm-slim
+# ─── Stage 3: Common Runtime Base ─────────────────────────────────────────────
+FROM debian:bookworm-slim AS runtime-base
 
 # Install runtime shared libraries
 RUN apt-get update && apt-get install -y \
@@ -50,8 +51,6 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Copy the compiled binary
-COPY --from=backend-builder /app/voce .
 # Copy ten-vad shared library and update system linker cache
 COPY --from=backend-builder /app/libs/ten-vad/lib/Linux/x64/libten_vad.so /usr/local/lib/
 RUN ldconfig
@@ -63,8 +62,22 @@ COPY --from=backend-builder /app/libs/ten-vad/src/onnx_model/ten-vad.onnx ./src/
 # Environment variables for execution
 ENV LD_LIBRARY_PATH=/usr/local/lib
 COPY config.yaml.example ./config.yaml
-EXPOSE 7001
+
+# ─── Stage 4: Voce Runtime Image ──────────────────────────────────────────────
+FROM runtime-base AS voce-runtime
+
+COPY --from=backend-builder /app/voce ./voce
 EXPOSE 7002
+EXPOSE 7003
 
 ENTRYPOINT ["./voce"]
+CMD ["-c", "/app/config.yaml"]
+
+# ─── Stage 5: Gateway Runtime Image ───────────────────────────────────────────
+FROM runtime-base AS gateway-runtime
+
+COPY --from=backend-builder /app/voce-gateway ./voce-gateway
+EXPOSE 7001
+
+ENTRYPOINT ["./voce-gateway"]
 CMD ["-c", "/app/config.yaml"]

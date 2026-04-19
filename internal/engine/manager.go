@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,10 +10,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
-	"github.com/wnnce/voce/config"
 )
-
-var DefaultWorkflowManager WorkflowConfigManager
 
 type WorkflowConfigManager interface {
 	Get(id string) (WorkflowConfig, error)
@@ -31,13 +27,13 @@ type fileWorkflowConfigManager struct {
 	nameMap map[string]string // Name -> ID
 }
 
-func newFileWorkflowConfigManager(dirPath string) *fileWorkflowConfigManager {
+// NewFileWorkflowConfigManager creates a new instance.
+func NewFileWorkflowConfigManager(dirPath string) WorkflowConfigManager {
 	m := &fileWorkflowConfigManager{
 		dirPath: dirPath,
 		configs: make(map[string]WorkflowConfig),
 		nameMap: make(map[string]string),
 	}
-
 	m.load()
 	return m
 }
@@ -166,13 +162,4 @@ func (m *fileWorkflowConfigManager) Delete(id string) error {
 	m.mu.Unlock()
 
 	return nil
-}
-
-func init() {
-	config.RegisterConfigureReaders(func(ctx context.Context) (func(), error) {
-		if DefaultWorkflowManager == nil {
-			DefaultWorkflowManager = newFileWorkflowConfigManager("configs/workflows")
-		}
-		return func() {}, nil
-	})
 }

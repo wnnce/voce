@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/bytedance/sonic"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wnnce/voce/internal/protocol"
 )
 
 func TestMergeScenarios(t *testing.T) {
@@ -155,7 +157,7 @@ func TestMergeScenarios(t *testing.T) {
 				t.Fatalf("failed to parse overlay: %v", err)
 			}
 
-			if err = deepMergeAST(&baseNode, &overlayNode); err != nil {
+			if err = DeepMergeAST(&baseNode, &overlayNode); err != nil {
 				t.Fatalf("merge failed: %v", err)
 			}
 
@@ -205,22 +207,19 @@ func BenchmarkDeepMerge(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		baseNode, _ := sonic.Get(baseJSON)
 		overlayNode, _ := sonic.Get(overlayJSON)
-		_ = deepMergeAST(&baseNode, &overlayNode)
+		_ = DeepMergeAST(&baseNode, &overlayNode)
 		_, _ = baseNode.Raw()
 	}
 }
 
 func TestSessionManager_Lifecycle(t *testing.T) {
-	// Setup WorkflowManager with a temp directory
 	tempDir := t.TempDir()
-	DefaultWorkflowManager = newFileWorkflowConfigManager(tempDir)
+	wm := NewFileWorkflowConfigManager(tempDir)
 
-	// Register a mock plugin
 	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
 		return &BuiltinPlugin{}
 	}, PluginMetadata{Name: "test_node"})
 
-	// Save a test workflow config
 	wfCfg := WorkflowConfig{
 		ID:   "w1",
 		Name: "TestWorkflow",
@@ -229,41 +228,36 @@ func TestSessionManager_Lifecycle(t *testing.T) {
 			{ID: "n1", Name: "Node1", Plugin: "test_node", Config: json.RawMessage(`{"value": "initial"}`)},
 		},
 	}
-	require.NoError(t, DefaultWorkflowManager.Save(wfCfg))
+	require.NoError(t, wm.Save(wfCfg))
 
-	sm := NewSessionManager(500 * time.Millisecond)
+	sm := NewSessionManager(wm, 500*time.Millisecond)
 	defer sm.Stop()
 
-	// Test CreateSession
 	ctx := context.Background()
 	props := map[string]json.RawMessage{
 		"Node1": json.RawMessage(`{"value": "overridden"}`),
 	}
-	session, err := sm.CreateSession(ctx, "s1", "TestWorkflow", props)
+	s1Key := protocol.NewSessionKey()
+	session, err := sm.CreateSession(ctx, s1Key, "TestWorkflow", props)
 	require.NoError(t, err)
 	require.NotNil(t, session)
-	assert.Equal(t, "s1", session.ID)
+	assert.Equal(t, s1Key, session.Key)
 
-	// Verify deep merge worked
-	// Since NewWorkflow is called inside CreateSession, we can't easily check wf.graph but we can check if it started
 	assert.Equal(t, int32(WorkflowStateRunning), session.Workflow.state.Load())
 
-	// Test LoadSession
-	loaded, ok := sm.LoadSession("s1")
+	loaded, ok := sm.LoadSession(s1Key)
 	assert.True(t, ok)
 	assert.Equal(t, session, loaded)
 
-	// Test LoadSession with non-existent ID
-	_, ok = sm.LoadSession("non-existent")
+	missingKey := protocol.NewSessionKey()
+	_, ok = sm.LoadSession(missingKey)
 	assert.False(t, ok)
 
-	// Test Session Activity Update
 	oldLastActive := session.LastActive.Load()
 	time.Sleep(10 * time.Millisecond)
-	sm.LoadSession("s1")
+	sm.LoadSession(s1Key)
 	assert.Greater(t, session.LastActive.Load(), oldLastActive)
 
-	// Test Stop
 	sm.Stop()
 	assert.Empty(t, sm.sessions)
 	require.Error(t, sm.ctx.Err())
@@ -271,9 +265,8 @@ func TestSessionManager_Lifecycle(t *testing.T) {
 }
 
 func TestSessionManager_Cleanup(t *testing.T) {
-	// Setup WorkflowManager
 	tempDir := t.TempDir()
-	DefaultWorkflowManager = newFileWorkflowConfigManager(tempDir)
+	wm := NewFileWorkflowConfigManager(tempDir)
 
 	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
 		return &BuiltinPlugin{}
@@ -287,26 +280,22 @@ func TestSessionManager_Cleanup(t *testing.T) {
 			{ID: "n1", Name: "Node1", Plugin: "test_node"},
 		},
 	}
-	require.NoError(t, DefaultWorkflowManager.Save(wfCfg))
+	require.NoError(t, wm.Save(wfCfg))
 
-	// Set a very short timeout for testing cleanup
 	timeout := 100 * time.Millisecond
-	sm := NewSessionManager(timeout)
+	sm := NewSessionManager(wm, timeout)
 	defer sm.Stop()
 
-	session, err := sm.CreateSession(context.Background(), "s2", "CleanupWorkflow", nil)
+	s2Key := protocol.NewSessionKey()
+	session, err := sm.CreateSession(context.Background(), s2Key, "CleanupWorkflow", nil)
 	require.NoError(t, err)
 
-	// Initially session should be there
-	_, ok := sm.LoadSession("s2")
+	_, ok := sm.LoadSession(s2Key)
 	assert.True(t, ok)
 
-	// Wait for cleanup ticker to trigger (ticker runs at timeout / 2)
-	// We wait slightly more than timeout to be sure
-	time.Sleep(timeout * 2)
+	time.Sleep(timeout * 3)
 
-	// Now session should be gone
-	_, ok = sm.LoadSession("s2")
+	_, ok = sm.LoadSession(s2Key)
 	assert.False(t, ok)
 	assert.Equal(t, int32(WorkflowStateStopped), session.Workflow.state.Load())
 }
@@ -314,18 +303,15 @@ func TestSessionManager_Cleanup(t *testing.T) {
 func TestDeepMergeJSON_NullInputs(t *testing.T) {
 	sm := &SessionManager{}
 
-	// Test both null
 	merged, err := sm.deepMergeJSON(nil, nil)
 	require.NoError(t, err)
 	assert.Nil(t, merged)
 
-	// Test base null
 	overlay := json.RawMessage(`{"a":1}`)
 	merged, err = sm.deepMergeJSON(nil, overlay)
 	require.NoError(t, err)
 	assert.Equal(t, overlay, merged)
 
-	// Test overlay null
 	base := json.RawMessage(`{"b":2}`)
 	merged, err = sm.deepMergeJSON(base, nil)
 	require.NoError(t, err)
@@ -333,13 +319,12 @@ func TestDeepMergeJSON_NullInputs(t *testing.T) {
 }
 
 func TestDeepMergeAST_NonObject(t *testing.T) {
-	// If base or overlay are not objects, deepMergeAST should return nil and not modify base
 	baseStr := `[1, 2]`
 	overlayStr := `{"a": 1}`
 	baseNode, _ := sonic.Get([]byte(baseStr))
 	overlayNode, _ := sonic.Get([]byte(overlayStr))
 
-	err := deepMergeAST(&baseNode, &overlayNode)
+	err := DeepMergeAST(&baseNode, &overlayNode)
 	require.NoError(t, err)
 
 	raw, _ := baseNode.Raw()
@@ -347,9 +332,8 @@ func TestDeepMergeAST_NonObject(t *testing.T) {
 }
 
 func TestSessionManager_RemoveSession(t *testing.T) {
-	// Setup environment
 	tempDir := t.TempDir()
-	DefaultWorkflowManager = newFileWorkflowConfigManager(tempDir)
+	wm := NewFileWorkflowConfigManager(tempDir)
 
 	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
 		return &BuiltinPlugin{}
@@ -359,29 +343,97 @@ func TestSessionManager_RemoveSession(t *testing.T) {
 		ID: "wf_remove", Name: "RemoveTest", Head: "n1",
 		Nodes: []NodeConfig{{ID: "n1", Name: "Node1", Plugin: "test_node"}},
 	}
-	require.NoError(t, DefaultWorkflowManager.Save(wfCfg))
+	require.NoError(t, wm.Save(wfCfg))
 
-	sm := NewSessionManager(5 * time.Second)
+	sm := NewSessionManager(wm, 5*time.Second)
 	defer sm.Stop()
 
-	// 1. Create session
-	session, err := sm.CreateSession(context.Background(), "s_remove", "RemoveTest", nil)
+	sRemoveKey := protocol.NewSessionKey()
+	session, err := sm.CreateSession(context.Background(), sRemoveKey, "RemoveTest", nil)
 	require.NoError(t, err)
 	assert.Equal(t, int32(WorkflowStateRunning), session.Workflow.state.Load())
 	assert.Equal(t, int64(1), int64(sm.Count()))
 
-	// 2. Remove session
-	sm.RemoveSession("s_remove")
+	sm.RemoveSession(sRemoveKey)
 
-	// 3. Verify removal and stop
-	_, ok := sm.LoadSession("s_remove")
+	_, ok := sm.LoadSession(sRemoveKey)
 	assert.False(t, ok)
 	assert.Equal(t, int64(0), int64(sm.Count()))
 	assert.Equal(t, int32(WorkflowStateStopped), session.Workflow.state.Load())
 
-	// 4. Test idempotency (should not panic or error)
 	assert.NotPanics(t, func() {
-		sm.RemoveSession("s_remove")
-		sm.RemoveSession("non_existent")
+		sm.RemoveSession(sRemoveKey)
+		missingKey := protocol.NewSessionKey()
+		sm.RemoveSession(missingKey)
 	})
+}
+
+func TestSessionManager_Observers(t *testing.T) {
+	tempDir := t.TempDir()
+	wm := NewFileWorkflowConfigManager(tempDir)
+
+	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
+		return &BuiltinPlugin{}
+	}, PluginMetadata{Name: "test_node"})
+
+	wfCfg := WorkflowConfig{
+		ID: "wf_observer", Name: "ObserverTest", Head: "n1",
+		Nodes: []NodeConfig{{ID: "n1", Name: "Node1", Plugin: "test_node"}},
+	}
+	require.NoError(t, wm.Save(wfCfg))
+
+	sm := NewSessionManager(wm, 100*time.Millisecond)
+	defer sm.Stop()
+
+	var createdCalled atomic.Bool
+	var deletedCalled atomic.Bool
+	var lastCreatedKey protocol.SessionKey
+	var lastDeletedKey protocol.SessionKey
+	var targetID atomic.Value
+
+	sID := protocol.NewSessionKey()
+	targetID.Store(sID.String())
+
+	cIdx := sm.AddCreatedObserver(func(s *Session) {
+		if s.Key.String() == targetID.Load().(string) {
+			createdCalled.Store(true)
+			lastCreatedKey = s.Key
+		}
+	})
+
+	dIdx := sm.AddDeletedObserver(func(s *Session) {
+		if s.Key.String() == targetID.Load().(string) {
+			deletedCalled.Store(true)
+			lastDeletedKey = s.Key
+		}
+	})
+
+	s, err := sm.CreateSession(context.Background(), sID, "ObserverTest", nil)
+	require.NoError(t, err)
+	assert.True(t, createdCalled.Load())
+	assert.Equal(t, s.Key, lastCreatedKey)
+
+	sm.RemoveCreatedObserver(cIdx)
+	createdCalled.Store(false)
+	targetKey := protocol.NewSessionKey()
+	targetID.Store(targetKey.String())
+	_, _ = sm.CreateSession(context.Background(), targetKey, "ObserverTest", nil)
+	assert.False(t, createdCalled.Load())
+
+	targetID.Store(sID.String())
+	sm.RemoveSession(s.Key)
+	assert.True(t, deletedCalled.Load())
+	assert.Equal(t, s.Key, lastDeletedKey)
+
+	deletedCalled.Store(false)
+	sID2Key := protocol.NewSessionKey()
+	targetID.Store(sID2Key.String())
+	s2, _ := sm.CreateSession(context.Background(), sID2Key, "ObserverTest", nil)
+	time.Sleep(250 * time.Millisecond)
+	_, ok := sm.LoadSession(sID2Key)
+	assert.False(t, ok)
+	assert.True(t, deletedCalled.Load())
+	assert.Equal(t, s2.Key, lastDeletedKey)
+
+	sm.RemoveDeletedObserver(dIdx)
 }

@@ -29,6 +29,8 @@ const (
 	TypeError            PacketType = 0x02
 	TypeText             PacketType = 0x03
 	TypeClose            PacketType = 0x04
+	TypePause            PacketType = 0x05
+	TypeResume           PacketType = 0x06
 	TypeInterrupter      PacketType = 0x11
 	TypeCaption          PacketType = 0x12
 	TypeUserSpeechStart  PacketType = 0x13
@@ -127,5 +129,25 @@ func (p *Packet) Unmarshal(content []byte) error {
 		return ErrPayloadMismatch
 	}
 	p.SetPayload(content[PacketHeaderSize:])
+	return nil
+}
+
+// UnmarshalHeader parses the packet header from content and validates its integrity.
+// It populates the packet's metadata fields (Type, Encode, Size) but does NOT
+// modify the Payload field, avoiding any memory allocation or copying.
+func (p *Packet) UnmarshalHeader(content []byte) error {
+	if len(content) < PacketHeaderSize {
+		return ErrInvalidHeader
+	}
+	if content[0] != MagicNumber1 || content[1] != MagicNumber2 {
+		return ErrMagicMismatch
+	}
+	p.Type = PacketType(content[2])
+	p.Encode = PacketEncode(content[3])
+	p.Size = binary.BigEndian.Uint32(content[4:8])
+
+	if int(p.Size) != len(content)-PacketHeaderSize {
+		return ErrPayloadMismatch
+	}
 	return nil
 }

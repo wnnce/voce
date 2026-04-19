@@ -9,38 +9,46 @@ import (
 	"github.com/wnnce/voce/pkg/result"
 )
 
-func ListWorkflows(w http.ResponseWriter, r *http.Request) error {
-	list, err := engine.DefaultWorkflowManager.List()
+type WorkflowHandler struct {
+	wm engine.WorkflowConfigManager
+}
+
+func NewWorkflowHandler(wm engine.WorkflowConfigManager) *WorkflowHandler {
+	return &WorkflowHandler{wm: wm}
+}
+
+func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) error {
+	list, err := h.wm.List()
 	if err != nil {
 		return err
 	}
 	return httpx.JSON(w, http.StatusOK, result.SuccessData(list))
 }
 
-func GetWorkflow(w http.ResponseWriter, r *http.Request) error {
+func (h *WorkflowHandler) GetWorkflow(w http.ResponseWriter, r *http.Request) error {
 	id := chi.URLParam(r, "id")
-	cfg, err := engine.DefaultWorkflowManager.Get(id)
+	cfg, err := h.wm.Get(id)
 	if err != nil {
 		return err
 	}
 	return httpx.JSON(w, http.StatusOK, result.SuccessData(cfg))
 }
 
-func SaveWorkflow(w http.ResponseWriter, r *http.Request) error {
+func (h *WorkflowHandler) SaveWorkflow(w http.ResponseWriter, r *http.Request) error {
 	var cfg engine.WorkflowConfig
 	if err := httpx.BindJSON(r, &cfg); err != nil {
 		return err
 	}
 
-	if err := engine.DefaultWorkflowManager.Save(cfg); err != nil {
+	if err := h.wm.Save(cfg); err != nil {
 		return err
 	}
 	return httpx.JSON(w, http.StatusOK, result.SuccessData(cfg))
 }
 
-func DeleteWorkflow(w http.ResponseWriter, r *http.Request) error {
+func (h *WorkflowHandler) DeleteWorkflow(w http.ResponseWriter, r *http.Request) error {
 	id := chi.URLParam(r, "id")
-	if err := engine.DefaultWorkflowManager.Delete(id); err != nil {
+	if err := h.wm.Delete(id); err != nil {
 		return err
 	}
 	return httpx.JSON(w, http.StatusOK, result.Success())

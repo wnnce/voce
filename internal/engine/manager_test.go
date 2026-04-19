@@ -32,7 +32,7 @@ func testWorkflowConfig(id string, name string) WorkflowConfig {
 func TestFileWorkflowConfigManager_LazyLoad(t *testing.T) {
 	dirPath := t.TempDir()
 
-	mgr := newFileWorkflowConfigManager(dirPath)
+	mgr := NewFileWorkflowConfigManager(dirPath)
 
 	list, err := mgr.List()
 	require.NoError(t, err)
@@ -46,7 +46,7 @@ func TestFileWorkflowConfigManager_LazyLoad(t *testing.T) {
 	require.NoError(t, err)
 
 	// New manager should load from dir
-	mgr2 := newFileWorkflowConfigManager(dirPath)
+	mgr2 := NewFileWorkflowConfigManager(dirPath)
 	list2, err := mgr2.List()
 	require.NoError(t, err)
 	assert.Len(t, list2, 1)
@@ -61,7 +61,7 @@ func TestFileWorkflowConfigManager_LazyLoad(t *testing.T) {
 
 func TestFileWorkflowConfigManager_NameUniqueness(t *testing.T) {
 	dirPath := t.TempDir()
-	mgr := newFileWorkflowConfigManager(dirPath)
+	mgr := NewFileWorkflowConfigManager(dirPath)
 
 	err := mgr.Save(testWorkflowConfig("w1", "DuplicateName"))
 	require.NoError(t, err)
@@ -86,7 +86,7 @@ func TestFileWorkflowConfigManager_NameUniqueness(t *testing.T) {
 func TestFileWorkflowConfigManager_Concurrency(t *testing.T) {
 	dirPath := t.TempDir()
 
-	mgr := newFileWorkflowConfigManager(dirPath)
+	mgr := NewFileWorkflowConfigManager(dirPath)
 
 	const count = 50
 	var wg sync.WaitGroup
@@ -109,7 +109,7 @@ func TestFileWorkflowConfigManager_Concurrency(t *testing.T) {
 
 func TestFileWorkflowConfigManager_Delete(t *testing.T) {
 	dirPath := t.TempDir()
-	mgr := newFileWorkflowConfigManager(dirPath)
+	mgr := NewFileWorkflowConfigManager(dirPath)
 
 	err := mgr.Save(testWorkflowConfig("d1", "DeleteMe"))
 	require.NoError(t, err)
