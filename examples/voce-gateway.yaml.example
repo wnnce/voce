@@ -7,6 +7,14 @@ server:
   mode: gateway
   gateway_addr: 127.0.0.1:7001
   pool_size: 16
+  workflow_store: redis
+
+redis:
+  host: 127.0.0.1
+  port: 6379
+  username: ""
+  password: ""
+  db: 0
 
 logging:
   console: true

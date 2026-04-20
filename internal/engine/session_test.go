@@ -228,7 +228,7 @@ func TestSessionManager_Lifecycle(t *testing.T) {
 			{ID: "n1", Name: "Node1", Plugin: "test_node", Config: json.RawMessage(`{"value": "initial"}`)},
 		},
 	}
-	require.NoError(t, wm.Save(wfCfg))
+	require.NoError(t, wm.Save(context.Background(), wfCfg))
 
 	sm := NewSessionManager(wm, 500*time.Millisecond)
 	defer sm.Stop()
@@ -280,7 +280,7 @@ func TestSessionManager_Cleanup(t *testing.T) {
 			{ID: "n1", Name: "Node1", Plugin: "test_node"},
 		},
 	}
-	require.NoError(t, wm.Save(wfCfg))
+	require.NoError(t, wm.Save(context.Background(), wfCfg))
 
 	timeout := 100 * time.Millisecond
 	sm := NewSessionManager(wm, timeout)
@@ -343,7 +343,7 @@ func TestSessionManager_RemoveSession(t *testing.T) {
 		ID: "wf_remove", Name: "RemoveTest", Head: "n1",
 		Nodes: []NodeConfig{{ID: "n1", Name: "Node1", Plugin: "test_node"}},
 	}
-	require.NoError(t, wm.Save(wfCfg))
+	require.NoError(t, wm.Save(context.Background(), wfCfg))
 
 	sm := NewSessionManager(wm, 5*time.Second)
 	defer sm.Stop()
@@ -380,7 +380,7 @@ func TestSessionManager_Observers(t *testing.T) {
 		ID: "wf_observer", Name: "ObserverTest", Head: "n1",
 		Nodes: []NodeConfig{{ID: "n1", Name: "Node1", Plugin: "test_node"}},
 	}
-	require.NoError(t, wm.Save(wfCfg))
+	require.NoError(t, wm.Save(context.Background(), wfCfg))
 
 	sm := NewSessionManager(wm, 100*time.Millisecond)
 	defer sm.Stop()

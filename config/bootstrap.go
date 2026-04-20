@@ -44,6 +44,8 @@ type VoceConfig struct {
 	Mode          string `json:"mode" yaml:"mode"`
 	GatewayAddr   string `json:"gateway_addr" yaml:"gateway_addr"`
 	PoolSize      int    `json:"pool_size" yaml:"pool_size"`
+	WorkflowStore string `json:"workflow_store" yaml:"workflow_store"` // "file" or "redis"
+	WorkflowDir   string `json:"workflow_dir" yaml:"workflow_dir"`     // directory for "file" store
 }
 
 // GatewayServerConfig is the configuration for the Gateway service itself

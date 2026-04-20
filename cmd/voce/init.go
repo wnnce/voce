@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/wnnce/voce/biz/dal"
 	"github.com/wnnce/voce/biz/handler"
 	"github.com/wnnce/voce/biz/realtime"
 	"github.com/wnnce/voce/biz/route"
@@ -46,7 +47,24 @@ func initBaseApplication(cfg config.VoceBootstrap) (*appBase, error) {
 	}
 	slog.SetDefault(logger)
 
-	wm := engine.NewFileWorkflowConfigManager("configs/workflows")
+	var wm engine.WorkflowConfigManager
+	if cfg.Server.WorkflowStore == "redis" {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		rdb, err := dal.NewRedisClient(ctx, cfg.Redis)
+		if err != nil {
+			return nil, err
+		}
+		wm = engine.NewRedisWorkflowConfigManager(rdb)
+	} else {
+		dir := cfg.Server.WorkflowDir
+		if dir == "" {
+			dir = "configs/workflows"
+		}
+		wm = engine.NewFileWorkflowConfigManager(dir)
+	}
+
 	sm := engine.NewSessionManager(wm, 1*time.Minute)
 
 	base := &appBase{

@@ -18,7 +18,7 @@ func NewWorkflowHandler(wm engine.WorkflowConfigManager) *WorkflowHandler {
 }
 
 func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) error {
-	list, err := h.wm.List()
+	list, err := h.wm.List(r.Context())
 	if err != nil {
 		return err
 	}
@@ -27,7 +27,7 @@ func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) 
 
 func (h *WorkflowHandler) GetWorkflow(w http.ResponseWriter, r *http.Request) error {
 	id := chi.URLParam(r, "id")
-	cfg, err := h.wm.Get(id)
+	cfg, err := h.wm.Get(r.Context(), id)
 	if err != nil {
 		return err
 	}
@@ -40,7 +40,7 @@ func (h *WorkflowHandler) SaveWorkflow(w http.ResponseWriter, r *http.Request) e
 		return err
 	}
 
-	if err := h.wm.Save(cfg); err != nil {
+	if err := h.wm.Save(r.Context(), cfg); err != nil {
 		return err
 	}
 	return httpx.JSON(w, http.StatusOK, result.SuccessData(cfg))
@@ -48,7 +48,7 @@ func (h *WorkflowHandler) SaveWorkflow(w http.ResponseWriter, r *http.Request) e
 
 func (h *WorkflowHandler) DeleteWorkflow(w http.ResponseWriter, r *http.Request) error {
 	id := chi.URLParam(r, "id")
-	if err := h.wm.Delete(id); err != nil {
+	if err := h.wm.Delete(r.Context(), id); err != nil {
 		return err
 	}
 	return httpx.JSON(w, http.StatusOK, result.Success())

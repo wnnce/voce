@@ -157,7 +157,7 @@ func (sm *SessionManager) CreateSession(
 	name string,
 	properties map[string]json.RawMessage,
 ) (*Session, error) {
-	cfg, err := sm.wm.GetWithName(name)
+	cfg, err := sm.wm.GetWithName(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("find workflow config by name %s: %w", name, err)
 	}
