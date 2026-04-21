@@ -12,7 +12,7 @@ import (
 	"github.com/wnnce/voce/pkg/logging"
 )
 
-func InitGateway(ctx context.Context, cfg config.GatewayBootstrap) (*gateway.GatewayHandler, func(), error) {
+func InitGateway(ctx context.Context, cfg config.GatewayBootstrap) (*gateway.Handler, func(), error) {
 	logger, err := logging.NewLoggerWithContext(cfg.Logging, metadata.ContextTraceKey)
 	if err != nil {
 		return nil, nil, err
@@ -30,7 +30,7 @@ func InitGateway(ctx context.Context, cfg config.GatewayBootstrap) (*gateway.Gat
 	sm := gateway.NewSessionManager(ctx, cfg.Gateway.SuspendTimeout, cfg.Gateway.CleanupInterval)
 	mm := gateway.NewMachineManager(ctx, cfg.Gateway, sm, nbEngine)
 
-	h := gateway.NewGatewayHandler(mm, sm)
+	h := gateway.NewHandler(mm, sm)
 
 	cleanup := func() {
 		nbEngine.Stop()

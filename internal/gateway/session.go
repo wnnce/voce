@@ -13,6 +13,11 @@ import (
 	"github.com/wnnce/voce/pkg/syncx"
 )
 
+var (
+	clientConnections atomic.Int64
+	sessions          atomic.Int64
+)
+
 type SessionState int32
 
 const (
@@ -83,10 +88,9 @@ func (s *Session) Release() bool {
 
 // Close terminates the session and notifies both client and upstream machine.
 func (s *Session) Close() {
-	if s.State() == SessionClosed {
+	if s.state.Swap(int32(SessionClosed)) == int32(SessionClosed) {
 		return
 	}
-	s.state.Store(int32(SessionClosed))
 
 	if s.client != nil {
 		_ = s.client.Close()
@@ -110,6 +114,7 @@ func (s *Session) OnClientOpen(socket *websocket.Conn) {
 	s.state.Store(int32(SessionReady))
 	s.lastActiveAt.Store(time.Now().UnixMilli())
 	s.client = socket
+	clientConnections.Add(1)
 
 	// If count > 1, this is a reconnect. Notify the backend to resume.
 	if count > 1 && s.conn != nil {
@@ -125,6 +130,7 @@ func (s *Session) OnClientOpen(socket *websocket.Conn) {
 func (s *Session) OnClientClose(socket *websocket.Conn, err error) {
 	slog.Warn("client disconnected", "session", s.key, "error", err)
 	s.client = nil
+	clientConnections.Add(-1)
 	if s.State() == SessionClosed {
 		return
 	}
@@ -223,16 +229,13 @@ func (m *SessionManager) cleanup(timeout time.Duration) {
 	}
 
 	for _, s := range expired {
-		m.shards.Delete(s.key)
-		s.Close()
-		if s.machine != nil {
-			s.machine.RemoveSession(s.key)
-		}
+		m.Delete(s.key)
 	}
 }
 
 func (m *SessionManager) Store(s *Session) {
 	m.shards.Store(s.key, s)
+	sessions.Add(1)
 }
 
 func (m *SessionManager) Load(key protocol.SessionKey) (*Session, bool) {
@@ -245,8 +248,9 @@ func (m *SessionManager) Delete(key protocol.SessionKey) {
 		if s.machine != nil {
 			s.machine.RemoveSession(s.key)
 		}
+		sessions.Add(-1)
+		m.shards.Delete(key)
 	}
-	m.shards.Delete(key)
 }
 
 func (m *SessionManager) DispatchMessage(key protocol.SessionKey, data []byte) {

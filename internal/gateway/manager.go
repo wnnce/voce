@@ -130,9 +130,7 @@ func (m *MachineManager) cleanupMachines(timeout time.Duration) {
 		})
 
 		for _, key := range sessionKeys {
-			if m.sm != nil {
-				m.sm.Delete(key)
-			}
+			m.sm.Delete(key)
 		}
 
 		machine.Pool.Shutdown()

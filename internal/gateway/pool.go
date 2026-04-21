@@ -20,6 +20,11 @@ type ConnectionPool struct {
 	closed atomic.Bool
 }
 
+type ConnectionPoolSlotSnapshot struct {
+	Slot  int                      `json:"slot"`
+	State protocol.ConnectionState `json:"state"`
+}
+
 func NewConnectionPool(
 	ctx context.Context,
 	engine *nbhttp.Engine,
@@ -68,4 +73,19 @@ func (p *ConnectionPool) Shutdown() {
 			conn.Close()
 		}
 	}
+}
+
+func (p *ConnectionPool) Snapshots() []ConnectionPoolSlotSnapshot {
+	snapshots := make([]ConnectionPoolSlotSnapshot, 0, len(p.slots))
+	for i, conn := range p.slots {
+		state := protocol.ConnectionClosed
+		if conn != nil {
+			state = conn.State()
+		}
+		snapshots = append(snapshots, ConnectionPoolSlotSnapshot{
+			Slot:  i,
+			State: state,
+		})
+	}
+	return snapshots
 }

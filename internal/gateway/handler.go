@@ -22,17 +22,48 @@ import (
 	"github.com/wnnce/voce/pkg/result"
 )
 
-// GatewayHandler handles incoming HTTP and WebSocket requests from clients and backend machines.
-type GatewayHandler struct {
+// Handler handles incoming HTTP and WebSocket requests from clients and backend machines.
+type Handler struct {
 	mm *MachineManager
 	sm *SessionManager
 }
 
-func NewGatewayHandler(mm *MachineManager, sm *SessionManager) *GatewayHandler {
-	return &GatewayHandler{mm: mm, sm: sm}
+func NewHandler(mm *MachineManager, sm *SessionManager) *Handler {
+	return &Handler{mm: mm, sm: sm}
 }
 
-func (h *GatewayHandler) ProxyToAny(w http.ResponseWriter, r *http.Request) error {
+type StateResponse struct {
+	Machines          int               `json:"machines"`
+	ActiveMachines    int               `json:"active_machines"`
+	ClientConnections int64             `json:"client_connections"`
+	Sessions          int64             `json:"sessions"`
+	MachineStates     []MachineSnapshot `json:"machine_states"`
+}
+
+func (h *Handler) HandleHealth(w http.ResponseWriter, _ *http.Request) error {
+	return httpx.JSON(w, http.StatusOK, result.Success())
+}
+
+func (h *Handler) HandleState(w http.ResponseWriter, _ *http.Request) error {
+	machines := make([]MachineSnapshot, 0)
+	activeMachines := 0
+	h.mm.RangeMachines(func(_ string, machine *Machine) bool {
+		if machine.State() == MachineStateActive {
+			activeMachines++
+		}
+		machines = append(machines, machine.Snapshot())
+		return true
+	})
+	return httpx.JSON(w, http.StatusOK, result.SuccessData(StateResponse{
+		Machines:          len(machines),
+		ActiveMachines:    activeMachines,
+		ClientConnections: clientConnections.Load(),
+		Sessions:          sessions.Load(),
+		MachineStates:     machines,
+	}))
+}
+
+func (h *Handler) ProxyToAny(w http.ResponseWriter, r *http.Request) error {
 	machine := h.mm.Random()
 	if machine == nil {
 		return errcode.New(http.StatusServiceUnavailable, http.StatusServiceUnavailable, "no active machines")
@@ -41,7 +72,7 @@ func (h *GatewayHandler) ProxyToAny(w http.ResponseWriter, r *http.Request) erro
 	return nil
 }
 
-func (h *GatewayHandler) HandleMonitorAggregate(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) HandleMonitorAggregate(w http.ResponseWriter, _ *http.Request) error {
 	type snapshot struct {
 		ID   string `json:"id"`
 		Addr string `json:"-"`
@@ -86,7 +117,7 @@ func (h *GatewayHandler) HandleMonitorAggregate(w http.ResponseWriter, r *http.R
 	return httpx.JSON(w, http.StatusOK, result.SuccessData(machines))
 }
 
-func (h *GatewayHandler) HandleSessionCreate(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) HandleSessionCreate(w http.ResponseWriter, r *http.Request) error {
 	machine := h.mm.LeastSessions()
 	if machine == nil {
 		return errcode.New(http.StatusServiceUnavailable, http.StatusServiceUnavailable, "no active machines")
@@ -106,7 +137,7 @@ func (h *GatewayHandler) HandleSessionCreate(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-func (h *GatewayHandler) HandleSessionHealth(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) HandleSessionHealth(w http.ResponseWriter, r *http.Request) error {
 	session, err := h.getSessionFromRequest(r)
 	if err != nil {
 		return err
@@ -115,7 +146,7 @@ func (h *GatewayHandler) HandleSessionHealth(w http.ResponseWriter, r *http.Requ
 	return nil
 }
 
-func (h *GatewayHandler) HandleSessionRenew(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) HandleSessionRenew(w http.ResponseWriter, r *http.Request) error {
 	session, err := h.getSessionFromRequest(r)
 	if err != nil {
 		return err
@@ -126,7 +157,7 @@ func (h *GatewayHandler) HandleSessionRenew(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-func (h *GatewayHandler) HandleSessionDelete(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) HandleSessionDelete(w http.ResponseWriter, r *http.Request) error {
 	session, err := h.getSessionFromRequest(r)
 	if err != nil {
 		return err
@@ -138,7 +169,7 @@ func (h *GatewayHandler) HandleSessionDelete(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-func (h *GatewayHandler) HandleRegister(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) HandleRegister(w http.ResponseWriter, r *http.Request) error {
 	q := r.URL.Query()
 	id := q.Get("id")
 	if id == "" {
@@ -175,7 +206,7 @@ func (h *GatewayHandler) HandleRegister(w http.ResponseWriter, r *http.Request) 
 	return nil
 }
 
-func (h *GatewayHandler) HandleRealtime(w http.ResponseWriter, r *http.Request) error {
+func (h *Handler) HandleRealtime(w http.ResponseWriter, r *http.Request) error {
 	session, err := h.getSessionFromRequest(r)
 	if err != nil {
 		return err
@@ -194,11 +225,11 @@ func (h *GatewayHandler) HandleRealtime(w http.ResponseWriter, r *http.Request) 
 	return nil
 }
 
-func (h *GatewayHandler) WebHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) WebHandler(w http.ResponseWriter, r *http.Request) {
 	handler.WebHandler(w, r)
 }
 
-func (h *GatewayHandler) getSessionFromRequest(r *http.Request) (*Session, error) {
+func (h *Handler) getSessionFromRequest(r *http.Request) (*Session, error) {
 	id := chi.URLParam(r, "id")
 	key, err := parseSessionKey(id)
 	if err != nil {
@@ -211,13 +242,13 @@ func (h *GatewayHandler) getSessionFromRequest(r *http.Request) (*Session, error
 	return session, nil
 }
 
-func (h *GatewayHandler) proxyRequest(w http.ResponseWriter, r *http.Request, machine *Machine) {
+func (h *Handler) proxyRequest(w http.ResponseWriter, r *http.Request, machine *Machine) {
 	target, _ := url.Parse("http://" + machine.Address())
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.ServeHTTP(w, r)
 }
 
-func (h *GatewayHandler) proxySessionLogic(w http.ResponseWriter, r *http.Request, machine *Machine, onSuccess func(body []byte)) error {
+func (h *Handler) proxySessionLogic(w http.ResponseWriter, r *http.Request, machine *Machine, onSuccess func(body []byte)) error {
 	targetURL := "http://" + machine.Address() + r.URL.Path
 	if r.URL.RawQuery != "" {
 		targetURL += "?" + r.URL.RawQuery

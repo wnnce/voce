@@ -42,6 +42,15 @@ type Machine struct {
 	lastHeartbeat atomic.Int64
 }
 
+type MachineSnapshot struct {
+	ID            string                       `json:"id"`
+	Address       string                       `json:"address"`
+	State         MachineState                 `json:"state"`
+	Sessions      int32                        `json:"sessions"`
+	LastHeartbeat int64                        `json:"last_heartbeat"`
+	Pool          []ConnectionPoolSlotSnapshot `json:"pool"`
+}
+
 func NewMachine(
 	ctx context.Context,
 	engine *nbhttp.Engine,
@@ -105,11 +114,8 @@ func (m *Machine) OnPong(_ *websocket.Conn, _ string) {
 	m.lastHeartbeat.Store(time.Now().UnixMilli())
 }
 
-func (m *Machine) OnMessage(_ *websocket.Conn, messageType websocket.MessageType, _ []byte) {
+func (m *Machine) OnMessage(_ *websocket.Conn, _ websocket.MessageType, _ []byte) {
 	slog.Info("Received machine message")
-	if messageType == websocket.PongMessage {
-		m.lastHeartbeat.Store(time.Now().UnixMilli())
-	}
 }
 
 func (m *Machine) OnOpen(socket *websocket.Conn) {
@@ -119,7 +125,7 @@ func (m *Machine) OnOpen(socket *websocket.Conn) {
 	m.state.Store(int32(MachineStateActive))
 }
 
-func (m *Machine) OnClose(conn *websocket.Conn, err error) {
+func (m *Machine) OnClose(_ *websocket.Conn, err error) {
 	slog.Warn("machine control connection closed", "id", m.ID, "addr", m.Address(), "error", err)
 	m.state.Store(int32(MachineStateSuspended))
 	m.socket.Store(nil)
@@ -131,4 +137,15 @@ func (m *Machine) Heartbeat() error {
 		return ErrMachineNotActive
 	}
 	return socket.WriteMessage(websocket.PingMessage, nil)
+}
+
+func (m *Machine) Snapshot() MachineSnapshot {
+	return MachineSnapshot{
+		ID:            m.ID,
+		Address:       m.Address(),
+		State:         m.State(),
+		Sessions:      m.Sessions(),
+		LastHeartbeat: m.lastHeartbeat.Load(),
+		Pool:          m.Pool.Snapshots(),
+	}
 }

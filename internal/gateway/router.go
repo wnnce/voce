@@ -8,10 +8,11 @@ import (
 )
 
 // NewRouter initializes and returns the primary gateway router.
-func NewRouter(h *GatewayHandler) http.Handler {
+func NewRouter(h *Handler) http.Handler {
 	r := chi.NewRouter()
 
-	r.Get("/health", httpx.Wrap(h.ProxyToAny))
+	r.Get("/health", httpx.Wrap(h.HandleHealth))
+	r.Get("/state", httpx.Wrap(h.HandleState))
 	r.Get("/plugins", httpx.Wrap(h.ProxyToAny))
 	r.Get("/monitor", httpx.Wrap(h.HandleMonitorAggregate))
 
