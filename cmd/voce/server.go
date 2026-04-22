@@ -32,7 +32,7 @@ func initialize(server config.VoceConfig, container route.AppContainer) chi.Rout
 	if server.Environment == "dev" {
 		router.Mount("/debug", chiMiddleware.Profiler())
 	}
-	route.RegisterRouter(router, container)
+	route.RegisterVoceRouter(router, container)
 	return router
 }
 

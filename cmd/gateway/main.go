@@ -10,8 +10,8 @@ import (
 
 	"github.com/lesismal/nbio/nbhttp"
 	"github.com/spf13/pflag"
+	"github.com/wnnce/voce/biz/route"
 	"github.com/wnnce/voce/config"
-	"github.com/wnnce/voce/internal/gateway"
 )
 
 func main() {
@@ -33,7 +33,7 @@ func main() {
 	}
 	defer cleanup()
 
-	router := gateway.NewRouter(h)
+	router := route.RegisterGatewayRouter(h)
 	nbServer := nbhttp.NewServer(nbhttp.Config{
 		Network: "tcp",
 		Addrs:   []string{cfg.Gateway.Address()},

@@ -21,7 +21,7 @@ type AppContainer struct {
 	Grpc     pb.VoceServiceServer
 }
 
-func RegisterRouter(router chi.Router, container AppContainer) {
+func RegisterVoceRouter(router chi.Router, container AppContainer) {
 	router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		_ = httpx.JSON(w, http.StatusOK, result.Success())
 	})

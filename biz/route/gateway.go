@@ -1,20 +1,22 @@
-package gateway
+package route
 
 import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/wnnce/voce/internal/gateway"
 	"github.com/wnnce/voce/pkg/httpx"
 )
 
-// NewRouter initializes and returns the primary gateway router.
-func NewRouter(h *Handler) http.Handler {
+// RegisterGatewayRouter initializes and returns the primary gateway router.
+func RegisterGatewayRouter(h *gateway.Handler) http.Handler {
 	r := chi.NewRouter()
 
 	r.Get("/health", httpx.Wrap(h.HandleHealth))
 	r.Get("/state", httpx.Wrap(h.HandleState))
 	r.Get("/plugins", httpx.Wrap(h.ProxyToAny))
 	r.Get("/monitor", httpx.Wrap(h.HandleMonitorAggregate))
+	r.Get("/gateway/monitor", httpx.Wrap(h.HandleMonitor))
 
 	r.Route("/workflows", func(r chi.Router) {
 		r.Get("/", httpx.Wrap(h.ProxyToAny))
