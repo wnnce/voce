@@ -1,5 +1,5 @@
 services:
-  gateway:
+  voce-gateway:
     build:
       context: .
       dockerfile: Dockerfile
@@ -13,25 +13,25 @@ services:
       - ./configs/gateway.yaml:/app/config.yaml:ro
     healthcheck:
       test:
-        ["CMD-SHELL", "wget -q --spider http://localhost:7001/monitor || exit 1"]
+        ["CMD-SHELL", "wget -q --spider http://localhost:7001/health || exit 1"]
       interval: 10s
       timeout: 2s
       retries: 3
       start_period: 5s
 
-  voce-gateway:
+  voce:
     build:
       context: .
       dockerfile: Dockerfile
       target: voce-runtime
-    image: voce:gateway-latest
-    container_name: voce-machine
+    image: voce:latest
+    container_name: voce
     restart: always
     ports:
       - "7002:7002"
       - "7003:7003"
     volumes:
-      - ./configs/voce-gateway.yaml:/app/config.yaml:ro
+      - ./configs/voce.yaml:/app/config.yaml:ro
       - ./configs/workflows:/app/configs/workflows
     healthcheck:
       test:
@@ -41,7 +41,7 @@ services:
       retries: 3
       start_period: 5s
     depends_on:
-      gateway:
+      voce-gateway:
         condition: service_started
 
 networks:
