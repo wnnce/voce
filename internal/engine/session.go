@@ -11,39 +11,106 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/bytedance/sonic/ast"
-	"github.com/wnnce/voce/config"
+	"github.com/wnnce/voce/internal/protocol"
 )
 
 type Session struct {
-	ID         string
+	Key        protocol.SessionKey
 	Workflow   *Workflow
 	LastActive atomic.Int64 // Unix timestamp in milliseconds for idle timeout cleanup
 	CreatedAt  time.Time
 	busy       atomic.Bool // Internal flag to prevent multiple concurrent connections
 }
 
+type SessionObserver func(s *Session)
+
 // SessionManager manages persistent sessions, allowing workflows to survive
 // short-term client disconnections. It handles session creation, retrieval,
 // cleanup of idle sessions, and dynamic configuration merging.
 type SessionManager struct {
-	sessions map[string]*Session
-	mu       sync.RWMutex
-	timeout  time.Duration
-	ticker   *time.Ticker
-	ctx      context.Context
-	cancel   context.CancelFunc
+	sessions       map[protocol.SessionKey]*Session
+	mu             sync.RWMutex
+	wm             WorkflowConfigManager
+	timeout        time.Duration
+	ticker         *time.Ticker
+	onCreated      []SessionObserver
+	onCreatedCount int
+	onDeleted      []SessionObserver
+	onDeletedCount int
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
-func NewSessionManager(timeout time.Duration) *SessionManager {
+func NewSessionManager(wm WorkflowConfigManager, timeout time.Duration) *SessionManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	sm := &SessionManager{
-		sessions: make(map[string]*Session),
-		timeout:  timeout,
-		ctx:      ctx,
-		cancel:   cancel,
+		sessions:  make(map[protocol.SessionKey]*Session),
+		wm:        wm,
+		timeout:   timeout,
+		ctx:       ctx,
+		cancel:    cancel,
+		onCreated: make([]SessionObserver, 4),
+		onDeleted: make([]SessionObserver, 4),
 	}
 	sm.startCleanupTicker()
 	return sm
+}
+
+func (sm *SessionManager) AddCreatedObserver(fn SessionObserver) int {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	index, newObservers := addObserver(sm.onCreated, fn, &sm.onCreatedCount)
+	sm.onCreated = newObservers
+	return index
+}
+
+func (sm *SessionManager) RemoveCreatedObserver(index int) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if index < 0 || index >= len(sm.onCreated) {
+		return
+	}
+	if sm.onCreated[index] != nil {
+		sm.onCreated[index] = nil
+		sm.onCreatedCount--
+	}
+}
+
+func (sm *SessionManager) AddDeletedObserver(fn SessionObserver) int {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	index, newObservers := addObserver(sm.onDeleted, fn, &sm.onDeletedCount)
+	sm.onDeleted = newObservers
+	return index
+}
+
+func addObserver(observers []SessionObserver, fn SessionObserver, count *int) (int, []SessionObserver) {
+	if *count == len(observers) {
+		index := len(observers)
+		observers = append(observers, fn)
+		*count++
+		return index, observers
+	}
+	for i := 0; i < len(observers); i++ {
+		if observers[i] == nil {
+			observers[i] = fn
+			*count++
+			return i, observers
+		}
+	}
+	return -1, observers
+}
+
+func (sm *SessionManager) RemoveDeletedObserver(index int) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if index < 0 || index >= len(sm.onDeleted) {
+		return
+	}
+	if sm.onDeleted[index] != nil {
+		sm.onDeleted[index] = nil
+		sm.onDeletedCount--
+	}
 }
 
 func (sm *SessionManager) Context() context.Context {
@@ -75,7 +142,7 @@ func (sm *SessionManager) Stop() {
 	for _, s := range sm.sessions {
 		s.Workflow.Stop()
 	}
-	sm.sessions = make(map[string]*Session)
+	sm.sessions = make(map[protocol.SessionKey]*Session)
 
 	if sm.cancel != nil {
 		sm.cancel()
@@ -86,10 +153,11 @@ func (sm *SessionManager) Stop() {
 // It clones and merges configurations, builds the graph, and starts the workflow execution.
 func (sm *SessionManager) CreateSession(
 	ctx context.Context,
-	sessionId, name string,
+	key protocol.SessionKey,
+	name string,
 	properties map[string]json.RawMessage,
 ) (*Session, error) {
-	cfg, err := DefaultWorkflowManager.GetWithName(name)
+	cfg, err := sm.wm.GetWithName(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("find workflow config by name %s: %w", name, err)
 	}
@@ -110,23 +178,36 @@ func (sm *SessionManager) CreateSession(
 		return nil, fmt.Errorf("start workflow: %w", err)
 	}
 	session := &Session{
-		ID:        sessionId,
+		Key:       key,
 		Workflow:  wf,
 		CreatedAt: time.Now(),
 	}
 	session.LastActive.Store(time.Now().Unix())
 
 	sm.mu.Lock()
-	sm.sessions[sessionId] = session
+	sm.sessions[key] = session
+	var observers []SessionObserver
+	if sm.onCreatedCount > 0 {
+		observers = make([]SessionObserver, 0, sm.onCreatedCount)
+		for _, fn := range sm.onCreated {
+			if fn != nil {
+				observers = append(observers, fn)
+			}
+		}
+	}
 	sm.mu.Unlock()
+
+	for _, fn := range observers {
+		fn(session)
+	}
 
 	return session, nil
 }
 
-func (sm *SessionManager) LoadSession(id string) (*Session, bool) {
+func (sm *SessionManager) LoadSession(key protocol.SessionKey) (*Session, bool) {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	s, ok := sm.sessions[id]
+	s, ok := sm.sessions[key]
 	if ok {
 		s.UpdateActivity()
 	}
@@ -134,18 +215,31 @@ func (sm *SessionManager) LoadSession(id string) (*Session, bool) {
 }
 
 // RemoveSession stops the underlying workflow and deletes the session mapping immediately.
-func (sm *SessionManager) RemoveSession(id string) {
+func (sm *SessionManager) RemoveSession(key protocol.SessionKey) {
 	sm.mu.Lock()
-	s, ok := sm.sessions[id]
+	s, ok := sm.sessions[key]
 	if !ok {
 		sm.mu.Unlock()
 		return
 	}
-	delete(sm.sessions, id)
+	delete(sm.sessions, key)
+	var observers []SessionObserver
+	if sm.onDeletedCount > 0 {
+		observers = make([]SessionObserver, 0, sm.onDeletedCount)
+		for _, fn := range sm.onDeleted {
+			if fn != nil {
+				observers = append(observers, fn)
+			}
+		}
+	}
 	sm.mu.Unlock()
 
+	for _, fn := range observers {
+		fn(s)
+	}
+
 	if s.Workflow != nil && s.Workflow.State() != WorkflowStateStopped {
-		slog.Info("removing session and stopping workflow", "sessionID", id)
+		slog.Info("removing session and stopping workflow", "sessionID", s.Key.String())
 		s.Workflow.Stop()
 	}
 }
@@ -163,10 +257,22 @@ func (sm *SessionManager) Cleanup() {
 		toBeStopped = append(toBeStopped, s)
 		delete(sm.sessions, id)
 	}
+	var observers []SessionObserver
+	if sm.onDeletedCount > 0 {
+		observers = make([]SessionObserver, 0, sm.onDeletedCount)
+		for _, fn := range sm.onDeleted {
+			if fn != nil {
+				observers = append(observers, fn)
+			}
+		}
+	}
 	sm.mu.Unlock()
 
 	for _, s := range toBeStopped {
-		slog.Info("cleaning up idle session", "sessionID", s.ID)
+		for _, fn := range observers {
+			fn(s)
+		}
+		slog.Info("cleaning up idle session", "sessionID", s.Key.String())
 		s.Workflow.Stop()
 	}
 }
@@ -221,7 +327,7 @@ func (sm *SessionManager) deepMergeJSON(base, overlay json.RawMessage) (json.Raw
 		return nil, err
 	}
 
-	if err = deepMergeAST(&baseNode, &overlayNode); err != nil {
+	if err = DeepMergeAST(&baseNode, &overlayNode); err != nil {
 		return nil, err
 	}
 
@@ -232,7 +338,7 @@ func (sm *SessionManager) deepMergeJSON(base, overlay json.RawMessage) (json.Raw
 	return json.RawMessage(raw), nil
 }
 
-func deepMergeAST(base *ast.Node, overlay *ast.Node) error {
+func DeepMergeAST(base *ast.Node, overlay *ast.Node) error {
 	if base.TypeSafe() != ast.V_OBJECT || overlay.TypeSafe() != ast.V_OBJECT {
 		return nil
 	}
@@ -245,7 +351,7 @@ func deepMergeAST(base *ast.Node, overlay *ast.Node) error {
 
 		baseMember := base.Get(key)
 		if baseMember.Exists() && baseMember.TypeSafe() == ast.V_OBJECT && node.TypeSafe() == ast.V_OBJECT {
-			if err := deepMergeAST(baseMember, node); err != nil {
+			if err := DeepMergeAST(baseMember, node); err != nil {
 				return false
 			}
 			_, _ = base.Set(key, *baseMember)
@@ -260,17 +366,4 @@ func (sm *SessionManager) Count() int {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	return len(sm.sessions)
-}
-
-var DefaultSessionManager *SessionManager
-
-func init() {
-	config.RegisterConfigureReaders(func(ctx context.Context) (func(), error) {
-		if DefaultSessionManager == nil {
-			DefaultSessionManager = NewSessionManager(1 * time.Minute)
-		}
-		return func() {
-			DefaultSessionManager.Stop()
-		}, nil
-	})
 }

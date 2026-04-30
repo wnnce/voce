@@ -26,6 +26,7 @@ go.work
 # config file
 config.yaml
 config.*.yaml
+gateway.yaml
 
 logs
 logs/*

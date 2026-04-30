@@ -123,9 +123,9 @@ func (w *Workflow) Write(packet *protocol.Packet) {
 		return
 	}
 	select {
-	case w.output <- packet:
 	case <-w.ctx.Done():
 		protocol.ReleasePacket(packet)
+	case w.output <- packet:
 	default:
 		// Packet-drop strategy to prevent node blocking under heavy load
 		slog.WarnContext(w.ctx, "Workflow output channel blocked, dropping packet", "type", packet.Type)

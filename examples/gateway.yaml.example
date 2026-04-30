@@ -1,0 +1,20 @@
+gateway:
+  name: voce_gateway
+  environment: dev
+  host: 0.0.0.0
+  port: 7001
+  pool_size: 16
+  suspend_timeout: 30s
+  cleanup_interval: 10s
+  heartbeat_interval: 5s
+
+logging:
+  console: true
+  level: INFO
+  source: false
+  file_dir: ./logs
+  file_name: gateway.log
+  max_size: 50
+  max_backups: 5
+  max_age: 10
+  compress: false

@@ -26,6 +26,7 @@ but the overall architecture is designed to gradually evolve into:
 - Independent audio / payload processing (no blocking)
 - Built-in backpressure & drop strategy for real-time systems
 - Sub-50ms P99 latency under 5000 concurrent sessions
+- Built-in gateway for horizontal scaling and session affinity
 
 ---
 
@@ -252,6 +253,7 @@ Environment: MacBook Pro M5 / 24GB RAM
 - [Key Features](docs/key_features.md)
 - [Plugin Development](docs/plugin.md)
 - [Quick Start](docs/quick_start.md)
+- [Gateway Architecture](docs/gateway.md)
 - [Integration Protocol](docs/protocol.md)
 - [Built-in Plugins List](docs/plugins_list.md)
 - [Benchmark Guide](docs/benchmark.md)

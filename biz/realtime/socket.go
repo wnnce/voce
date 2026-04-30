@@ -31,16 +31,18 @@ type SocketHandler struct {
 	cancel  context.CancelFunc
 	socket  *gws.Conn
 	session *engine.Session
+	sm      *engine.SessionManager
 	running atomic.Bool
 	held    bool
 }
 
-func NewSocketHandler(session *engine.Session) *SocketHandler {
+func NewSocketHandler(sm *engine.SessionManager, session *engine.Session) *SocketHandler {
 	sessionCtx, cancel := context.WithCancel(session.Workflow.Context())
 	return &SocketHandler{
 		ctx:     sessionCtx,
 		cancel:  cancel,
 		session: session,
+		sm:      sm,
 	}
 }
 
@@ -48,7 +50,7 @@ func (s *SocketHandler) OnOpen(socket *gws.Conn) {
 	s.socket = socket
 
 	if !s.session.Acquire() {
-		slog.WarnContext(s.ctx, "session is busy, closing connection", "sessionID", s.session.ID)
+		slog.WarnContext(s.ctx, "session is busy, closing connection", "sessionID", s.session.Key.String())
 		_ = socket.WriteClose(1008, []byte("session is busy"))
 		return
 	}
@@ -121,7 +123,7 @@ func (s *SocketHandler) OnMessage(socket *gws.Conn, message *gws.Message) {
 		}
 	case protocol.TypeClose:
 		slog.InfoContext(s.ctx, "received close packet, stopping session")
-		engine.DefaultSessionManager.RemoveSession(s.session.ID)
+		s.sm.RemoveSession(s.session.Key)
 		if err := s.socket.WriteClose(1000, nil); err != nil {
 			slog.ErrorContext(s.ctx, "close socket failed", "error", err)
 		}

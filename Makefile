@@ -1,10 +1,12 @@
-.PHONY: all build build-web build-tui build-all test lint fmt clean help deps
+.PHONY: all build build-gateway build-web build-tui build-all test test-gateway lint fmt clean help deps
 
 # Configuration
 BINARY_NAME=voce
+GATEWAY_NAME=voce-gateway
 TUI_NAME=voce-tui
 BIN_DIR=bin
 CMD_PATH=./cmd/voce
+GATEWAY_CMD_PATH=./cmd/gateway
 WEB_DIR=clients/web
 TUI_DIR=clients/voce-tui
 LIBS_DIR=libs
@@ -18,6 +20,11 @@ build: deps build-web
 	@echo "Building backend $(BINARY_NAME)..."
 	@mkdir -p $(BIN_DIR)
 	go build -o $(BIN_DIR)/$(BINARY_NAME) $(CMD_PATH)
+
+build-gateway: deps build-web
+	@echo "Building gateway $(GATEWAY_NAME)..."
+	@mkdir -p $(BIN_DIR)
+	go build -o $(BIN_DIR)/$(GATEWAY_NAME) $(GATEWAY_CMD_PATH)
 
 # 2. Frontend Build
 build-web:
@@ -43,7 +50,7 @@ $(TEN_VAD_DIR):
 	fi
 
 # 5. Build Everything
-build-all: build build-tui
+build-all: build build-gateway build-tui
 
 # Testing
 test: test-backend test-tui
@@ -51,6 +58,10 @@ test: test-backend test-tui
 test-backend: deps
 	@echo "Running backend tests..."
 	go test -v ./...
+
+test-gateway: deps
+	@echo "Running gateway tests..."
+	go test -v ./cmd/gateway ./internal/gateway
 
 test-tui:
 	@echo "Running TUI tests..."
@@ -97,9 +108,11 @@ help:
 	@echo ""
 	@echo "Usage:"
 	@echo "  make build      - Build backend (includes frontend embedding)"
+	@echo "  make build-gateway - Build gateway (includes frontend embedding)"
 	@echo "  make build-web  - Build frontend dist only"
 	@echo "  make build-tui  - Build TUI client"
-	@echo "  make build-all  - Build all components (Backend, Web, TUI)"
+	@echo "  make build-all  - Build all components (Backend, Gateway, Web, TUI)"
 	@echo "  make test       - Run all project tests"
+	@echo "  make test-gateway - Run gateway unit tests"
 	@echo "  make lint       - Run all linters"
 	@echo "  make clean      - Remove all build artifacts"

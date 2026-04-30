@@ -10,6 +10,13 @@ import (
 	"github.com/wnnce/voce/pkg/result"
 )
 
+type PluginHandler struct {
+}
+
+func NewPluginHandler() *PluginHandler {
+	return &PluginHandler{}
+}
+
 type PluginInfo struct {
 	Name        string                `json:"name"`
 	Description string                `json:"description,omitzero"`
@@ -19,7 +26,7 @@ type PluginInfo struct {
 	Ports       []engine.PortMetadata `json:"ports,omitzero"`
 }
 
-func ListPlugins(w http.ResponseWriter, r *http.Request) error {
+func (h *PluginHandler) ListPlugins(w http.ResponseWriter, r *http.Request) error {
 	builders := engine.GetPluginBuilders()
 	list := make([]PluginInfo, 0, len(builders))
 

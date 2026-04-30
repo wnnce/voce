@@ -4,13 +4,14 @@ server:
   host: 0.0.0.0
   port: 7001
   grpc_port: 7002
+  mode: standalone
 
 logging:
   console: true
   level: INFO
   source: false
   file_dir: ./logs
-  file_name: app.log
+  file_name: voce.log
   max_size: 50
   max_backups: 5
   max_age: 10
