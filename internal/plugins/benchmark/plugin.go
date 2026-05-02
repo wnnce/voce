@@ -1,12 +1,15 @@
 package benchmark
 
 import (
+	"bufio"
 	"context"
 	"os"
 
 	"github.com/wnnce/voce/internal/engine"
 	"github.com/wnnce/voce/internal/schema"
 )
+
+const recorderBufferSize = 64 * 1024
 
 // ForwarderPlugin is a pure pass-through extension
 type ForwarderPlugin struct {
@@ -20,28 +23,35 @@ func NewForwarderPlugin(_ engine.EmptyPluginConfig) engine.Plugin {
 // RecorderPlugin simulates a write operation before forwarding
 type RecorderPlugin struct {
 	engine.BuiltinPlugin
-	file *os.File
+	file   *os.File
+	writer *bufio.Writer
 }
 
 func NewRecorderPlugin(_ engine.EmptyPluginConfig) engine.Plugin {
-	f, _ := os.OpenFile(os.DevNull, os.O_WRONLY, 0666)
+	f, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0666)
+	if err != nil {
+		return &RecorderPlugin{}
+	}
 	return &RecorderPlugin{
-		file: f,
+		file:   f,
+		writer: bufio.NewWriterSize(f, recorderBufferSize),
 	}
 }
 
 func (e *RecorderPlugin) OnAudio(ctx context.Context, flow engine.Flow, audio schema.Audio) {
-	if e.file != nil {
-		_, _ = e.file.Write(audio.Bytes())
+	if e.writer != nil {
+		_, _ = e.writer.Write(audio.Bytes())
 	}
 	flow.SendAudio(audio)
 }
 
 func (e *RecorderPlugin) OnStop() {
+	if e.writer != nil {
+		_ = e.writer.Flush()
+	}
 	if e.file != nil {
 		_ = e.file.Close()
 	}
-	e.BuiltinPlugin.OnStop()
 }
 
 func init() {
