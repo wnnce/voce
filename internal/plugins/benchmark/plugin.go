@@ -9,7 +9,7 @@ import (
 	"github.com/wnnce/voce/internal/schema"
 )
 
-const recorderBufferSize = 64 * 1024
+const recorderBufferSize = 32 * 1024
 
 // ForwarderPlugin is a pure pass-through extension
 type ForwarderPlugin struct {
