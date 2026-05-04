@@ -140,7 +140,7 @@ func (b *GenericBuilder[T]) Ports() []PortMetadata {
 func (b *GenericBuilder[T]) Schema() *jsonschema.Schema {
 	var zero T
 	typ := reflect.TypeOf(zero)
-	if typ != nil && typ.Kind() == reflect.Ptr {
+	if typ != nil && typ.Kind() == reflect.Pointer {
 		newVal := reflect.New(typ.Elem())
 		reflect.ValueOf(&zero).Elem().Set(newVal)
 	}
@@ -150,7 +150,7 @@ func (b *GenericBuilder[T]) Schema() *jsonschema.Schema {
 func (b *GenericBuilder[T]) Build(data []byte) (Plugin, error) {
 	var zero T
 	typ := reflect.TypeOf(zero)
-	if typ != nil && typ.Kind() == reflect.Ptr {
+	if typ != nil && typ.Kind() == reflect.Pointer {
 		newVal := reflect.New(typ.Elem())
 		reflect.ValueOf(&zero).Elem().Set(newVal)
 	}
