@@ -37,6 +37,11 @@ func (m *MockSlowPlugin) OnSignal(ctx context.Context, flow Flow, signal schema.
 	}
 }
 
+func TestPluginReflectName(t *testing.T) {
+	assert.Equal(t, "engine.MockSlowPlugin", pluginReflectName(&MockSlowPlugin{}))
+	assert.Equal(t, "<nil>", pluginReflectName(nil))
+}
+
 func TestMultiTrackPlugin(t *testing.T) {
 	t.Run("Basic Serialization per Track", func(t *testing.T) {
 		mock := &MockSlowPlugin{}

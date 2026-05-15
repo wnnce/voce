@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"slices"
 	"sync/atomic"
 
@@ -35,7 +36,7 @@ func newStream[T schema.ReadOnly](bufSize int, strategy DropStrategy, signals []
 	}
 }
 
-func (s *track[T]) push(ctx context.Context, data T) {
+func (s *track[T]) push(ctx context.Context, pluginName string, data T) {
 	item := internalData[T]{
 		epoch: s.epoch.Load(),
 		data:  data,
@@ -46,6 +47,7 @@ func (s *track[T]) push(ctx context.Context, data T) {
 				rc.Release()
 			}
 			slog.WarnContext(ctx, "stream buffer full, drop newest frame",
+				"plugin", pluginName,
 				"type", fmt.Sprintf("%T", data))
 		}
 		return
@@ -55,6 +57,7 @@ func (s *track[T]) push(ctx context.Context, data T) {
 			rc.Release()
 		}
 		slog.ErrorContext(ctx, "stream input blocked and context canceled",
+			"plugin", pluginName,
 			"type", fmt.Sprintf("%T", data))
 	}
 }
@@ -62,6 +65,7 @@ func (s *track[T]) push(ctx context.Context, data T) {
 func (s *track[T]) readLoop(
 	ctx context.Context,
 	flow Flow,
+	pluginName string,
 	paused *atomic.Bool,
 	makeContext bool,
 	handler func(context.Context, Flow, T),
@@ -90,6 +94,14 @@ func (s *track[T]) readLoop(
 				if rc, ok := any(itl.data).(schema.RefCountable); ok {
 					rc.Release()
 				}
+				reason := "paused"
+				if itl.epoch != s.epoch.Load() {
+					reason = "stale_epoch"
+				}
+				slog.WarnContext(ctx, "stream frame discarded",
+					"plugin", pluginName,
+					"type", fmt.Sprintf("%T", itl.data),
+					"reason", reason)
 				continue
 			}
 			var curCtx = ctx
@@ -98,7 +110,7 @@ func (s *track[T]) readLoop(
 				curCtx, cancel = context.WithCancel(ctx)
 				s.cancel.Store(&cancel)
 			}
-			processEvent(curCtx, flow, itl.data, handler)
+			processEvent(curCtx, flow, pluginName, itl.data, handler)
 			if cancel != nil {
 				cancel()
 				s.cancel.Store(nil)
@@ -146,6 +158,7 @@ type MultiTrackPlugin struct {
 	ctx    context.Context
 	flow   Flow
 	plugin Plugin
+	name   string
 	paused atomic.Bool
 
 	payloadTrack *track[schema.Payload]
@@ -159,6 +172,7 @@ func NewMultiTrackPlugin(plugin Plugin, options ...TrackOption) Plugin {
 	}
 	wrapper := &MultiTrackPlugin{
 		plugin: plugin,
+		name:   pluginReflectName(plugin),
 	}
 	for _, opt := range options {
 		opt(wrapper)
@@ -173,13 +187,13 @@ func (b *MultiTrackPlugin) OnStart(ctx context.Context, flow Flow) error {
 	b.ctx = ctx
 	b.flow = flow
 	if b.payloadTrack != nil {
-		go b.payloadTrack.readLoop(ctx, flow, &b.paused, true, b.plugin.OnPayload)
+		go b.payloadTrack.readLoop(ctx, flow, b.name, &b.paused, true, b.plugin.OnPayload)
 	}
 	if b.audioTrack != nil {
-		go b.audioTrack.readLoop(ctx, flow, &b.paused, true, b.plugin.OnAudio)
+		go b.audioTrack.readLoop(ctx, flow, b.name, &b.paused, true, b.plugin.OnAudio)
 	}
 	if b.videoTrack != nil {
-		go b.videoTrack.readLoop(ctx, flow, &b.paused, true, b.plugin.OnVideo)
+		go b.videoTrack.readLoop(ctx, flow, b.name, &b.paused, true, b.plugin.OnVideo)
 	}
 	return nil
 }
@@ -225,7 +239,7 @@ func (b *MultiTrackPlugin) OnPayload(ctx context.Context, flow Flow, payload sch
 		b.plugin.OnPayload(ctx, flow, payload)
 		return
 	}
-	b.payloadTrack.push(ctx, payload)
+	b.payloadTrack.push(ctx, b.name, payload)
 }
 
 func (b *MultiTrackPlugin) OnAudio(ctx context.Context, flow Flow, audio schema.Audio) {
@@ -234,7 +248,7 @@ func (b *MultiTrackPlugin) OnAudio(ctx context.Context, flow Flow, audio schema.
 		return
 	}
 	audio.Retain()
-	b.audioTrack.push(ctx, audio)
+	b.audioTrack.push(ctx, b.name, audio)
 }
 
 func (b *MultiTrackPlugin) OnVideo(ctx context.Context, flow Flow, video schema.Video) {
@@ -243,12 +257,13 @@ func (b *MultiTrackPlugin) OnVideo(ctx context.Context, flow Flow, video schema.
 		return
 	}
 	video.Retain()
-	b.videoTrack.push(ctx, video)
+	b.videoTrack.push(ctx, b.name, video)
 }
 
 func processEvent[T schema.ReadOnly](
 	ctx context.Context,
 	flow Flow,
+	pluginName string,
 	event T,
 	handler func(context.Context, Flow, T),
 ) {
@@ -258,9 +273,20 @@ func processEvent[T schema.ReadOnly](
 				ref.Release()
 			}
 			if err := recover(); err != nil {
-				slog.ErrorContext(ctx, "plugin panic recovered", "error", err)
+				slog.ErrorContext(ctx, "plugin panic recovered", "plugin", pluginName, "error", err)
 			}
 		}()
 		handler(ctx, flow, event)
 	}()
+}
+
+func pluginReflectName(plugin Plugin) string {
+	if plugin == nil {
+		return "<nil>"
+	}
+	typ := reflect.TypeOf(plugin)
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	return typ.String()
 }
