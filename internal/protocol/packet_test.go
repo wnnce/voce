@@ -106,7 +106,7 @@ func BenchmarkPacket_Marshal(b *testing.B) {
 	p.SetPayload(make([]byte, 1024))
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = p.Marshal()
 	}
 }
@@ -122,7 +122,7 @@ func BenchmarkPacket_Unmarshal(b *testing.B) {
 	defer ReleasePacket(p2)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = p2.Unmarshal(data)
 	}
 }

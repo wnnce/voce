@@ -1,7 +1,8 @@
 package metadata
 
 const (
-	ContextTraceKey ContextKeyStr = "trace_id"
+	ContextTraceKey    ContextKeyStr = "trace_id"
+	ContextNodeNameKey ContextKeyStr = "node"
 )
 
 type ContextKeyStr string

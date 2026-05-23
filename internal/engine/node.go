@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/wnnce/voce/internal/metadata"
 	"github.com/wnnce/voce/internal/protocol"
 	"github.com/wnnce/voce/internal/schema"
 	"github.com/wnnce/voce/pkg/syncx"
@@ -49,7 +50,7 @@ type node struct {
 
 func newNode(ctx context.Context, name string, plugin Plugin) *node {
 	return &node{
-		ctx:         ctx,
+		ctx:         context.WithValue(ctx, metadata.ContextNodeNameKey, name),
 		plugin:      plugin,
 		name:        name,
 		ctrlChan:    make(chan controlType, ctrlBufferSize),
@@ -355,7 +356,7 @@ func (n *node) SendAudio(value schema.Audio) {
 	if downstreamCount == 0 || n.ctx.Err() != nil || !n.running.Load() {
 		return
 	}
-	for i := 0; i < downstreamCount; i++ {
+	for range downstreamCount {
 		value.Retain()
 	}
 	for _, nn := range n.table.audios {
@@ -372,7 +373,7 @@ func (n *node) SendAudioToPort(port int, value schema.Audio) {
 	if downstreamCount == 0 {
 		return
 	}
-	for i := 0; i < downstreamCount; i++ {
+	for range downstreamCount {
 		value.Retain()
 	}
 	for _, nn := range nodes {
@@ -385,7 +386,7 @@ func (n *node) SendVideo(value schema.Video) {
 	if downstreamCount == 0 || n.ctx.Err() != nil || !n.running.Load() {
 		return
 	}
-	for i := 0; i < downstreamCount; i++ {
+	for range downstreamCount {
 		value.Retain()
 	}
 	for _, nn := range n.table.videos {
@@ -402,7 +403,7 @@ func (n *node) SendVideoToPort(port int, value schema.Video) {
 	if downstreamCount == 0 {
 		return
 	}
-	for i := 0; i < downstreamCount; i++ {
+	for range downstreamCount {
 		value.Retain()
 	}
 	for _, nn := range nodes {

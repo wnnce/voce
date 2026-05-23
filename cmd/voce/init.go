@@ -41,7 +41,11 @@ func InitApplication(_ context.Context, cfg config.VoceBootstrap) (route.AppCont
 }
 
 func initBaseApplication(cfg config.VoceBootstrap) (*appBase, error) {
-	logger, err := logging.NewLoggerWithContext(cfg.Logging, metadata.ContextTraceKey)
+	logger, err := logging.NewLoggerWithContext(
+		cfg.Logging,
+		metadata.ContextTraceKey,
+		metadata.ContextNodeNameKey,
+	)
 	if err != nil {
 		return nil, err
 	}

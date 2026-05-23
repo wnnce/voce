@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wnnce/voce/internal/metadata"
 	"github.com/wnnce/voce/internal/protocol"
 	"github.com/wnnce/voce/internal/schema"
 )
@@ -70,6 +71,12 @@ func TestNode_Lifecycle(t *testing.T) {
 	assert.Eventually(t, func() bool {
 		return plg.onStopCount.Load() == 1
 	}, 100*time.Millisecond, 10*time.Millisecond, "OnStop should be called after readLoop exits")
+}
+
+func TestNewNode_ContextHasPluginName(t *testing.T) {
+	n := newNode(context.Background(), "test-node", &mockPlugin{})
+
+	assert.Equal(t, "test-node", n.Context().Value(metadata.ContextNodeNameKey))
 }
 
 func TestNode_DataFlow(t *testing.T) {
