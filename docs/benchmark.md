@@ -84,11 +84,27 @@ Benchmark 默认选用了 `benchmark` 这个特定的 Workflow， 其 DAG 路径
 
 ## 3. 如何使用 (Usage)
 
+压测工具入口是 [cmd/bench/main.go](../cmd/bench/main.go)。工具会先通过 `POST /sessions` 为每个虚拟用户创建 workflow session，再连接 `/realtime/{session_id}`，按固定间隔发送二进制音频包，并统计回包 RTT。
+
 ### 第一步：启动服务端
 
-确保项目已编译并启动服务端：
+单机模式下，先启动 Voce 服务端，并确保 `benchmark` workflow 已存在于 `configs/workflows` 中：
 
-### 第二步：运行压测工具
+```bash
+go run ./cmd/voce -c examples/voce-standalone.yaml.example
+```
+
+网关模式下，压测目标应指向网关地址；后端 Worker 需要以 gateway 模式注册到网关：
+
+```bash
+go run ./cmd/gateway -c examples/gateway.yaml.example
+go run ./cmd/voce -c examples/voce-gateway.yaml.example
+```
+
+> [!NOTE]
+> `-pprof` 会访问 `-t` 指向目标的 `/debug/pprof/*`。Voce Worker 仅在 `server.environment: dev` 时挂载 `/debug`；当前 Gateway 入口不挂载 `/debug`，因此压测网关时通常关闭 `-pprof`，或另行对 Worker 做独立采样。
+
+### 第二步：运行单轮压测
 
 在项目根目录下通过 `go run` 启动：
 
@@ -96,7 +112,20 @@ Benchmark 默认选用了 `benchmark` 这个特定的 Workflow， 其 DAG 路径
 go run cmd/bench/main.go -u 1000 -d 1m -b 5
 ```
 
-### 可选参数说明
+常用示例：
+
+```bash
+# 1000 并发用户，持续 1 分钟，每个用户 50ms 发一个 1600B 音频包
+go run ./cmd/bench -u 1000 -d 1m -i 50ms -b 5 -t http://127.0.0.1:7001
+
+# 保存 JSON 报告到 reports 目录
+go run ./cmd/bench -u 3000 -d 1m -save -o reports
+
+# 同时采集目标服务 pprof。目标必须暴露 /debug/pprof/*
+go run ./cmd/bench -u 3000 -d 1m -save -pprof -o reports
+```
+
+### 命令行参数
 
 - `-u` (int): 并发用户数 (默认 10)
 - `-d` (duration): 压测持续时间 (默认 20s)
@@ -104,3 +133,111 @@ go run cmd/bench/main.go -u 1000 -d 1m -b 5
 - `-b` (int): 分批启动的桶数量 (默认 5)
 - `-w` (string): 压测使用的 Workflow 名称 (默认 "benchmark")
 - `-t` (string): 目标服务地址 (默认 "http://127.0.0.1:7001")
+- `-save` (bool): 是否保存本轮 JSON 报告 (默认 false)
+- `-pprof` (bool): 是否自动采集目标服务 pprof。目标必须暴露 `/debug/pprof/*` (默认 false)
+- `-o` (string): 报告与 pprof 文件输出目录 (默认当前目录)
+- `-plan` (string): 多轮压测计划 JSON 文件路径。设置后会忽略单轮的 `-u`、`-d`、`-i`、`-w`、`-t`、`-b`、`-save`、`-pprof`、`-o`
+- `-cooldown` (duration): 多轮压测之间的冷却时间 (默认 40s)
+
+### 多轮压测计划
+
+当需要跑阶梯压测时，使用 `-plan` 传入 JSON 数组。每个数组元素是一轮压测配置：
+
+```json
+[
+  {
+    "workflow": "benchmark",
+    "users": 1000,
+    "duration": "1m",
+    "interval": "50ms",
+    "target": "http://127.0.0.1:7001",
+    "buckets": 5,
+    "save_report": true,
+    "enable_pprof": false,
+    "output_dir": "reports"
+  },
+  {
+    "workflow": "benchmark",
+    "users": 3000,
+    "duration": "1m",
+    "interval": "50ms",
+    "target": "http://127.0.0.1:7001",
+    "buckets": 5,
+    "save_report": true,
+    "enable_pprof": true,
+    "output_dir": "reports"
+  }
+]
+```
+
+执行：
+
+```bash
+go run ./cmd/bench -plan bench-plan.json -cooldown 1m
+```
+
+Plan 字段说明：
+
+- `workflow`: workflow 名称，默认 `benchmark`
+- `users`: 目标虚拟用户数，默认 `10`
+- `duration`: 本轮持续时间字符串，例如 `30s`、`1m`、`2m30s`
+- `interval`: 单用户发包间隔字符串，例如 `50ms`
+- `target`: 服务端或网关 HTTP 地址，默认 `http://127.0.0.1:7001`
+- `buckets`: 分批启动桶数量，默认 `5`
+- `save_report`: 是否保存 JSON 报告
+- `enable_pprof`: 是否采集目标服务 pprof。目标必须暴露 `/debug/pprof/*`
+- `output_dir`: 输出目录，默认当前目录
+
+### 输出与指标口径
+
+终端报告示例：
+
+```text
+===== Voce Performance Report =====
+Workflow:      benchmark
+Target Users:  1000
+Actual Users:  1000
+Buckets:       5
+Sent:          1200000
+Received:      1199980
+Errors:        0
+Lost:          20
+Loss Rate:     0.00%
+Avg RTT:       3 ms
+P95 RTT:       5 ms
+P99 RTT:       8 ms
+Min/Max:       0/32 ms
+===================================
+```
+
+- `Target Users`: 期望创建的虚拟用户数。
+- `Actual Users`: 实际成功创建 session 并完成 WebSocket 连接的用户数。服务端拒绝、网络失败或 workflow 创建失败会导致该值低于 `Target Users`。
+- `Sent`: 客户端成功进入发送路径的音频包数量。
+- `Received`: 客户端收到并成功解析时间戳的音频回包数量。
+- `Errors`: WebSocket 写入失败次数。
+- `Lost`: `Sent - Received`。压测结束后工具会额外等待 5 秒接收尾包，因此该值主要反映未回到客户端或超出等待窗口的包。
+- `Avg/P95/P99 RTT`: 端到端往返延迟。RTT 通过音频 payload 前 8 字节中的发送时间戳计算。
+- `Min/Max`: 记录到的最小/最大 RTT。直方图最大跟踪 60000ms，超过该值会归入 60000ms 桶。
+
+### 报告和 pprof 文件
+
+开启 `-save` 后，工具会输出 JSON 报告：
+
+```text
+{workflow}_{users}_{buckets}_{duration}_{timestamp}.json
+```
+
+开启 `-pprof` 后，工具会在压测期间自动下载：
+
+- `heap_*.prof`: 10 次堆快照，按压测时长均匀采样
+- `block_*.prof`: 10 次 block profile
+- `mutex_*.prof`: 10 次 mutex profile
+- `trace_*.out`: 压测中段采集 5 秒 trace
+- `profile_*.pprof`: CPU profile，采集时长约为总时长的 1/3，最多 30 秒
+
+分析示例：
+
+```bash
+go tool pprof reports/profile_benchmark_3000_5_1m0s.pprof
+go tool trace reports/trace_benchmark_3000_5_1m0s.out
+```
