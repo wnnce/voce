@@ -6,12 +6,14 @@ import (
 
 // WorkflowConfig Represents the dynamic structure of a flow, typically deserialized from JSON.
 type WorkflowConfig struct {
-	ID      string       `json:"id"`
-	Name    string       `json:"name"`
-	Version string       `json:"version"`
-	Head    string       `json:"head"`
-	Nodes   []NodeConfig `json:"nodes"`
-	Edges   []EdgeConfig `json:"edges"`
+	ID               string        `json:"id"`
+	Name             string        `json:"name"`
+	Version          string        `json:"version"`
+	Head             string        `json:"head"`
+	Nodes            []NodeConfig  `json:"nodes"`
+	Edges            []EdgeConfig  `json:"edges"`
+	SchedulerMode    SchedulerMode `json:"scheduler_mode"`
+	SchedulerWorkers int           `json:"scheduler_workers"`
 }
 
 // NodeConfig Represent a specific instance of an Plugin within the Workflow.

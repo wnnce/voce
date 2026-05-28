@@ -59,6 +59,8 @@ export interface WorkflowConfig {
   head: string;
   nodes: NodeConfig[];
   edges: EdgeConfig[];
+  scheduler_mode?: 'thread-per-node' | 'worker-pool';
+  scheduler_workers?: number;
 }
 
 export interface Result<T> {

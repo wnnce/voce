@@ -65,7 +65,7 @@ func TestNode_PayloadFlow(t *testing.T) {
 	defer cancel()
 
 	n := newNode(ctx, "payload-node", plg)
-	require.NoError(t, n.start())
+	require.NoError(t, n.Start())
 
 	p := schema.NewPayload("test")
 	_ = p.Set("key", "value")
@@ -100,13 +100,13 @@ func TestNode_PauseResume(t *testing.T) {
 	}
 	_ = plg // keep mockPlugin for other tests
 	n := newNode(ctx, "pause-test", pausedPlugin)
-	require.NoError(t, n.start())
+	require.NoError(t, n.Start())
 
-	n.pause()
+	n.Pause()
 	assert.Eventually(t, func() bool { return pauseCalled.Load() },
 		500*time.Millisecond, 5*time.Millisecond, "OnPause must be called after pause()")
 
-	n.resume()
+	n.Resume()
 	assert.Eventually(t, func() bool { return resumeCalled.Load() },
 		500*time.Millisecond, 5*time.Millisecond, "OnResume must be called after resume()")
 }
@@ -142,7 +142,7 @@ func TestNode_SignalFanOut(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	makeRecv := func() *node {
+	makeRecv := func() Node {
 		plg := &fullMockPlugin{
 			onSignalHook: func(_ context.Context, _ Flow, _ schema.Signal) {
 				count.Add(1)
@@ -150,12 +150,12 @@ func TestNode_SignalFanOut(t *testing.T) {
 			},
 		}
 		n := newNode(ctx, "recv", plg)
-		_ = n.start()
+		_ = n.Start()
 		return n
 	}
 
 	sender := newNode(ctx, "sender", &BuiltinPlugin{})
-	_ = sender.start()
+	_ = sender.Start()
 	for range numReceivers {
 		sender.addNextNode(EventSignal, makeRecv())
 	}
@@ -186,7 +186,7 @@ func TestNode_AudioFanOut(t *testing.T) {
 	defer cancel()
 
 	sender := newNode(ctx, "sender", &BuiltinPlugin{})
-	_ = sender.start()
+	_ = sender.Start()
 
 	for range numReceivers {
 		plg := &fullMockPlugin{
@@ -196,7 +196,7 @@ func TestNode_AudioFanOut(t *testing.T) {
 			},
 		}
 		n := newNode(ctx, "recv", plg)
-		_ = n.start()
+		_ = n.Start()
 		sender.addNextNode(EventAudio, n)
 	}
 
@@ -221,19 +221,19 @@ func TestNode_PortRouting(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	makeCapture := func(counter *atomic.Int32) *node {
+	makeCapture := func(counter *atomic.Int32) Node {
 		plg := &fullMockPlugin{
 			onPayload: func(_ context.Context, _ Flow, _ schema.Payload) {
 				counter.Add(1)
 			},
 		}
 		n := newNode(ctx, "cap", plg)
-		_ = n.start()
+		_ = n.Start()
 		return n
 	}
 
 	sender := newNode(ctx, "sender", &BuiltinPlugin{})
-	_ = sender.start()
+	_ = sender.Start()
 
 	sender.addNextPortNode(EventPayload, makeCapture(&port0), 0)
 	sender.addNextPortNode(EventPayload, makeCapture(&port1), 1)
@@ -255,7 +255,7 @@ func TestNode_ContextCancelStopsLoop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	n := newNode(ctx, "ctx-cancel", plg)
-	require.NoError(t, n.start())
+	require.NoError(t, n.Start())
 	assert.True(t, n.running.Load())
 
 	cancel()

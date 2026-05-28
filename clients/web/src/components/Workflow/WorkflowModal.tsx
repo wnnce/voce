@@ -25,6 +25,8 @@ const WorkflowModal: React.FC<WorkflowModalProps> = ({ open, onClose, onSave, in
   const [name, setName] = useState(initialData?.name || '');
   const [version, setVersion] = useState(initialData?.version || '1.0.0');
   const [head, setHead] = useState(initialData?.head || (nodes?.length ? nodes[0].id : ''));
+  const [schedulerMode, setSchedulerMode] = useState<string>(initialData?.scheduler_mode || 'thread-per-node');
+  const [schedulerWorkers, setSchedulerWorkers] = useState<number>(initialData?.scheduler_workers || 0);
   const [error, setError] = useState<string | null>(null);
 
   const handleNameChange = (val: string) => {
@@ -47,7 +49,13 @@ const WorkflowModal: React.FC<WorkflowModalProps> = ({ open, onClose, onSave, in
 
   const handleSave = () => {
     if (!name.trim() || error) return;
-    onSave({ name, version, head });
+    onSave({ 
+      name, 
+      version, 
+      head,
+      scheduler_mode: schedulerMode as any,
+      scheduler_workers: schedulerMode === 'worker-pool' ? schedulerWorkers : undefined
+    });
     onClose();
   };
 
@@ -59,7 +67,7 @@ const WorkflowModal: React.FC<WorkflowModalProps> = ({ open, onClose, onSave, in
         </Typography>
       </DialogTitle>
       <DialogContent dividers sx={{ py: 2 }}>
-        <Stack spacing={2} sx={{ mt: 1 }}>
+        <Stack spacing={3} sx={{ mt: 1 }}>
           <Box>
             <Typography variant="caption" fontWeight="bold" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
               BASIC INFORMATION
@@ -100,6 +108,39 @@ const WorkflowModal: React.FC<WorkflowModalProps> = ({ open, onClose, onSave, in
                   </option>
                 ))}
               </TextField>
+            </Stack>
+          </Box>
+
+          <Box>
+            <Typography variant="caption" fontWeight="bold" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+              SCHEDULER CONFIGURATION
+            </Typography>
+            <Stack spacing={2}>
+              <TextField
+                select
+                label="Scheduler Mode"
+                fullWidth
+                value={schedulerMode}
+                onChange={(e) => setSchedulerMode(e.target.value)}
+                size="small"
+                SelectProps={{ native: true }}
+                helperText="Select execution scheduling strategy"
+              >
+                <option value="thread-per-node">Thread Per Node (Isolated Loop)</option>
+                <option value="worker-pool">Worker Pool (Cooperative Threads)</option>
+              </TextField>
+              {schedulerMode === 'worker-pool' && (
+                <TextField
+                  type="number"
+                  label="Scheduler Workers"
+                  fullWidth
+                  value={schedulerWorkers}
+                  onChange={(e) => setSchedulerWorkers(Math.max(0, parseInt(e.target.value) || 0))}
+                  size="small"
+                  inputProps={{ min: 0 }}
+                  helperText="Workers count. Set to 0 to auto-calculate (1/4 of nodes, min 1)."
+                />
+              )}
             </Stack>
           </Box>
         </Stack>

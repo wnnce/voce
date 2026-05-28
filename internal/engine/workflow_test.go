@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -55,9 +56,9 @@ func TestWorkflow_TopologicalSort_And_Execution(t *testing.T) {
 	require.Len(t, wf.nodes, 3)
 
 	// Since n1 -> n2 -> n3, topological sort should guarantee this order for Start/Initialize
-	assert.Equal(t, "Node 1", wf.nodes[0].name)
-	assert.Equal(t, "Node 2", wf.nodes[1].name)
-	assert.Equal(t, "Node 3", wf.nodes[2].name)
+	assert.Equal(t, "Node 1", wf.nodes[0].Name())
+	assert.Equal(t, "Node 2", wf.nodes[1].Name())
+	assert.Equal(t, "Node 3", wf.nodes[2].Name())
 
 	err = wf.Start()
 	require.NoError(t, err)
@@ -132,11 +133,11 @@ func TestWorkflow_SendToNodeWithName(t *testing.T) {
 	require.Len(t, wf.nameMap, 2)
 	idx1, ok1 := wf.nameMap["Node 1"]
 	require.True(t, ok1)
-	assert.Equal(t, "Node 1", wf.nodes[idx1].name)
+	assert.Equal(t, "Node 1", wf.nodes[idx1].Name())
 
 	idx2, ok2 := wf.nameMap["Node 2"]
 	require.True(t, ok2)
-	assert.Equal(t, "Node 2", wf.nodes[idx2].name)
+	assert.Equal(t, "Node 2", wf.nodes[idx2].Name())
 
 	payload := schema.NewPayload("")
 	require.NoError(t, payload.Set("content", "hello"))
@@ -149,4 +150,95 @@ func TestWorkflow_SendToNodeWithName(t *testing.T) {
 	err = wf.SendToNodeWithName("NonExistent", payload.ReadOnly())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "node Name NonExistent not found")
+}
+
+func TestWorkflow_WorkerPoolExecution(t *testing.T) {
+	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
+		return &BuiltinPlugin{}
+	}, PluginMetadata{
+		Name: "test_node_wp",
+	})
+
+	config := &WorkflowConfig{
+		ID:               "wf-workerpool",
+		Head:             "n1",
+		SchedulerMode:    "worker-pool",
+		SchedulerWorkers: 2,
+		Nodes: []NodeConfig{
+			{ID: "n1", Name: "Node 1", Plugin: "test_node_wp"},
+			{ID: "n2", Name: "Node 2", Plugin: "test_node_wp"},
+		},
+		Edges: []EdgeConfig{
+			{Source: "n1", Target: "n2", Type: EventPayload, SourcePort: 0},
+		},
+	}
+
+	graph, err := BuildGraph(config)
+	require.NoError(t, err)
+
+	wf, err := NewWorkflow(context.Background(), graph)
+	require.NoError(t, err)
+	require.NotNil(t, wf.scheduler)
+
+	err = wf.Start()
+	require.NoError(t, err)
+
+	payload := schema.NewPayload("")
+	require.NoError(t, payload.Set("content", "hello"))
+
+	err = wf.SendToHead(payload.ReadOnly())
+	require.NoError(t, err)
+
+	// Stop workflow
+	wf.Stop()
+}
+
+func TestWorkflow_WorkerPoolDefaultWorkers(t *testing.T) {
+	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
+		return &BuiltinPlugin{}
+	}, PluginMetadata{
+		Name: "test_node_wp_default",
+	})
+
+	tests := []struct {
+		name            string
+		nodeCount       int
+		inputWorkers    int
+		expectedWorkers int
+	}{
+		{"less than 4 nodes, invalid input", 3, 0, 1},
+		{"less than 4 nodes, valid input", 3, 2, 2},
+		{"5 nodes, invalid input", 5, 0, 2},
+		{"8 nodes, invalid input", 8, 0, 2},
+		{"8 nodes, too large input", 8, 9, 2},
+		{"8 nodes, valid input", 8, 5, 5},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			nodes := make([]NodeConfig, tt.nodeCount)
+			for i := 0; i < tt.nodeCount; i++ {
+				id := fmt.Sprintf("n%d", i+1)
+				nodes[i] = NodeConfig{ID: id, Name: "Node " + id, Plugin: "test_node_wp_default"}
+			}
+
+			config := &WorkflowConfig{
+				ID:               "wf-test",
+				Head:             "n1",
+				SchedulerMode:    "worker-pool",
+				SchedulerWorkers: tt.inputWorkers,
+				Nodes:            nodes,
+			}
+
+			graph, err := BuildGraph(config)
+			require.NoError(t, err)
+
+			wf, err := NewWorkflow(context.Background(), graph)
+			require.NoError(t, err)
+			defer wf.Stop()
+
+			require.NotNil(t, wf.scheduler)
+			assert.Len(t, wf.scheduler.workers, tt.expectedWorkers)
+		})
+	}
 }

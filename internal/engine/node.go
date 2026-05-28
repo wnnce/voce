@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -12,94 +11,79 @@ import (
 	"github.com/wnnce/voce/internal/metadata"
 	"github.com/wnnce/voce/internal/protocol"
 	"github.com/wnnce/voce/internal/schema"
-	"github.com/wnnce/voce/pkg/syncx"
 )
 
 const (
-	ctrlBufferSize        = 8
-	signalBufferSize      = 12
-	payloadBufferSize     = 24
-	audioBufferSize       = 64
-	videoBufferSize       = 24
 	singleHandlerDeadline = 100
 )
 
 type routeTable struct {
-	signals  []*node
-	payloads []*node
-	audios   []*node
-	videos   []*node
+	signals  []Node
+	payloads []Node
+	audios   []Node
+	videos   []Node
 }
 
-// node is the active runtime instance of a plugin in the workflow graph.
-// It manages its own event loop and buffers for various event types.
-type node struct {
-	ctx         context.Context
-	plugin      Plugin
-	ctrlChan    chan controlType
-	signalChan  chan schema.Signal
-	payloadChan chan schema.Payload
-	audioChan   chan schema.Audio
-	videoChan   chan schema.Video
-	name        string
-	table       routeTable
-	portTable   [MaxPortCount]routeTable
-	running     atomic.Bool
-	writer      SocketWriter
+// Node defines the polymorphic runtime instance of a plugin in the workflow graph.
+type Node interface {
+	Flow
+	Start() error
+	Ready()
+	Stop()
+	Pause()
+	Resume()
+	Input(data schema.ReadOnly)
+	Context() context.Context
+	Name() string
+
+	addNextNode(event EventType, nextNode Node)
+	addNextPortNode(event EventType, nextNode Node, port int)
+	setSocketWriter(writer SocketWriter)
+
+	// Internal scheduling methods
+	processEvent(value schema.ReadOnly, useDeadline bool)
+	processControl(ctrl controlType)
 }
 
-func newNode(ctx context.Context, name string, plugin Plugin) *node {
-	return &node{
-		ctx:         context.WithValue(ctx, metadata.ContextNodeNameKey, name),
-		plugin:      plugin,
-		name:        name,
-		ctrlChan:    make(chan controlType, ctrlBufferSize),
-		signalChan:  make(chan schema.Signal, signalBufferSize),
-		payloadChan: make(chan schema.Payload, payloadBufferSize),
-		audioChan:   make(chan schema.Audio, audioBufferSize),
-		videoChan:   make(chan schema.Video, videoBufferSize),
+// baseNode contains the common logic for routing, socket writing, and properties.
+type baseNode struct {
+	ctx       context.Context
+	plugin    Plugin
+	name      string
+	table     routeTable
+	portTable [MaxPortCount]routeTable
+	running   atomic.Bool
+	writer    SocketWriter
+}
+
+func newBaseNode(ctx context.Context, name string, plugin Plugin) baseNode {
+	return baseNode{
+		ctx:    context.WithValue(ctx, metadata.ContextNodeNameKey, name),
+		plugin: plugin,
+		name:   name,
 	}
 }
 
-func (n *node) setSocketWriter(writer SocketWriter) {
+func (n *baseNode) Context() context.Context {
+	return n.ctx
+}
+
+func (n *baseNode) Name() string {
+	return n.name
+}
+
+func (n *baseNode) setSocketWriter(writer SocketWriter) {
 	n.writer = writer
 }
 
-func (n *node) start() error {
-	if err := n.plugin.OnStart(n.ctx, n); err != nil {
-		return err
-	}
-	n.running.Store(true)
-	go n.readLoop()
-	return nil
-}
-
-func (n *node) ready() {
+func (n *baseNode) Ready() {
 	if !n.running.Load() {
 		return
 	}
 	n.plugin.OnReady(n.ctx, n)
 }
 
-func (n *node) stop() {
-	n.running.Store(false)
-}
-
-func (n *node) pause() {
-	if !n.running.Load() {
-		return
-	}
-	_ = syncx.SendWithContext(n.ctx, n.ctrlChan, controlPause)
-}
-
-func (n *node) resume() {
-	if !n.running.Load() {
-		return
-	}
-	_ = syncx.SendWithContext(n.ctx, n.ctrlChan, controlResume)
-}
-
-func (n *node) addNextNode(event EventType, nextNode *node) {
+func (n *baseNode) addNextNode(event EventType, nextNode Node) {
 	switch event {
 	case EventSignal:
 		if !slices.Contains(n.table.signals, nextNode) {
@@ -120,7 +104,7 @@ func (n *node) addNextNode(event EventType, nextNode *node) {
 	}
 }
 
-func (n *node) addNextPortNode(event EventType, nextNode *node, port int) {
+func (n *baseNode) addNextPortNode(event EventType, nextNode Node, port int) {
 	if port < 0 || port >= MaxPortCount {
 		return
 	}
@@ -156,71 +140,118 @@ func (n *node) addNextPortNode(event EventType, nextNode *node, port int) {
 	}
 }
 
-func (n *node) readLoop() {
-	defer func() {
-		n.running.Store(false)
-		n.plugin.OnStop()
-		n.drainChannels()
-	}()
-	for {
-		if n.ctx.Err() != nil || !n.running.Load() {
-			return
-		}
-		var (
-			event       schema.ReadOnly
-			useDeadline bool
-		)
-		select {
-		case <-n.ctx.Done():
-			return
-		case event = <-n.signalChan:
-			// High-priority: signals (control, interruption) always processed first.
-			n.processEvent(event, true)
-			continue
-		case ctrl := <-n.ctrlChan:
-			n.processControl(ctrl)
-			continue
-		default:
-			// Normal flow: prioritize control signals then media channels.
-			select {
-			case <-n.ctx.Done():
-				return
-			case ctrl := <-n.ctrlChan:
-				n.processControl(ctrl)
-			case event = <-n.signalChan:
-				useDeadline = true
-			case event = <-n.payloadChan:
-				useDeadline = true
-			case event = <-n.audioChan:
-				useDeadline = false
-			case event = <-n.videoChan:
-				useDeadline = false
-			}
-		}
-
-		n.processEvent(event, useDeadline)
+func (n *baseNode) SendSignal(value schema.Signal) {
+	if len(n.table.signals) == 0 || n.ctx.Err() != nil || !n.running.Load() {
+		return
+	}
+	for _, next := range n.table.signals {
+		next.Input(value)
 	}
 }
 
-func (n *node) drainChannels() {
-	for {
-		var event schema.ReadOnly
-		select {
-		case event = <-n.audioChan:
-		case event = <-n.videoChan:
-		default:
-			return
-		}
-		if event == nil {
-			continue
-		}
-		if ref, ok := event.(schema.RefCountable); ok {
-			ref.Release()
-		}
+func (n *baseNode) SendSignalToPort(port int, value schema.Signal) {
+	if port < 0 || port >= MaxPortCount || len(n.portTable[port].signals) == 0 || n.ctx.Err() != nil || !n.running.Load() {
+		return
+	}
+	for _, next := range n.portTable[port].signals {
+		next.Input(value)
 	}
 }
 
-func (n *node) processControl(ctrl controlType) {
+func (n *baseNode) SendPayload(value schema.Payload) {
+	if len(n.table.payloads) == 0 || n.ctx.Err() != nil || !n.running.Load() {
+		return
+	}
+	for _, nn := range n.table.payloads {
+		nn.Input(value)
+	}
+}
+
+func (n *baseNode) SendPayloadToPort(port int, value schema.Payload) {
+	if port < 0 || port >= MaxPortCount || len(n.portTable[port].payloads) == 0 || n.ctx.Err() != nil || !n.running.Load() {
+		return
+	}
+	for _, nn := range n.portTable[port].payloads {
+		nn.Input(value)
+	}
+}
+
+func (n *baseNode) SendAudio(value schema.Audio) {
+	downstreamCount := len(n.table.audios)
+	if downstreamCount == 0 || n.ctx.Err() != nil || !n.running.Load() {
+		return
+	}
+	for range downstreamCount {
+		value.Retain()
+	}
+	for _, nn := range n.table.audios {
+		nn.Input(value)
+	}
+}
+
+func (n *baseNode) SendAudioToPort(port int, value schema.Audio) {
+	if port < 0 || port >= MaxPortCount || n.ctx.Err() != nil || !n.running.Load() {
+		return
+	}
+	nodes := n.portTable[port].audios
+	downstreamCount := len(nodes)
+	if downstreamCount == 0 {
+		return
+	}
+	for range downstreamCount {
+		value.Retain()
+	}
+	for _, nn := range nodes {
+		nn.Input(value)
+	}
+}
+
+func (n *baseNode) SendVideo(value schema.Video) {
+	downstreamCount := len(n.table.videos)
+	if downstreamCount == 0 || n.ctx.Err() != nil || !n.running.Load() {
+		return
+	}
+	for range downstreamCount {
+		value.Retain()
+	}
+	for _, nn := range n.table.videos {
+		nn.Input(value)
+	}
+}
+
+func (n *baseNode) SendVideoToPort(port int, value schema.Video) {
+	if port < 0 || port >= MaxPortCount || n.ctx.Err() != nil || !n.running.Load() {
+		return
+	}
+	nodes := n.portTable[port].videos
+	downstreamCount := len(nodes)
+	if downstreamCount == 0 {
+		return
+	}
+	for range downstreamCount {
+		value.Retain()
+	}
+	for _, nn := range nodes {
+		nn.Input(value)
+	}
+}
+
+func (n *baseNode) Publish(mt protocol.PacketType, data []byte) {
+	n.PublishFull(mt, protocol.EncodeRaw, data)
+}
+
+func (n *baseNode) PublishFull(mt protocol.PacketType, encode protocol.PacketEncode, data []byte) {
+	if n.writer == nil {
+		return
+	}
+	packet := protocol.AcquirePacket()
+	packet.Type = mt
+	packet.Encode = encode
+	packet.SetPayload(data)
+	n.writer.Write(packet)
+}
+
+func (n *baseNode) processControl(ctrl controlType) {
 	switch ctrl {
 	case controlPause:
 		n.plugin.OnPause(n.ctx)
@@ -229,7 +260,7 @@ func (n *node) processControl(ctrl controlType) {
 	}
 }
 
-func (n *node) processEvent(value schema.ReadOnly, useDeadline bool) {
+func (n *baseNode) processEvent(value schema.ReadOnly, useDeadline bool) {
 	if value == nil {
 		return
 	}
@@ -241,7 +272,6 @@ func (n *node) processEvent(value schema.ReadOnly, useDeadline bool) {
 	)
 
 	if useDeadline {
-		// Enforce a processing timeout for control/data events to ensure node responsiveness.
 		currentCtx, cancel = context.WithDeadline(n.ctx, start.Add(singleHandlerDeadline*time.Millisecond))
 	} else {
 		currentCtx = n.ctx
@@ -250,7 +280,6 @@ func (n *node) processEvent(value schema.ReadOnly, useDeadline bool) {
 	func() {
 		defer func() {
 			if ref, ok := value.(schema.RefCountable); ok {
-				// Automatic memory management: release back to the object pool.
 				ref.Release()
 			}
 			if err := recover(); err != nil {
@@ -282,146 +311,6 @@ func (n *node) processEvent(value schema.ReadOnly, useDeadline bool) {
 	}()
 }
 
-func (n *node) Input(data schema.ReadOnly) {
-	if n.ctx.Err() != nil || !n.running.Load() {
-		if ref, ok := data.(schema.RefCountable); ok {
-			ref.Release()
-		}
-		return
-	}
-	switch v := data.(type) {
-	case schema.Signal:
-		_ = syncx.SendWithContext(n.ctx, n.signalChan, v)
-	case schema.Payload:
-		_ = syncx.SendWithContext(n.ctx, n.payloadChan, v)
-	case schema.Audio:
-		if err := syncx.SendWithNonBlocking(n.ctx, n.audioChan, v); err != nil {
-			v.Release()
-			if errors.Is(err, syncx.ErrSendBlocked) {
-				slog.ErrorContext(n.ctx, "audio dropped", "node", n.name)
-			}
-		}
-	case schema.Video:
-		if err := syncx.SendWithNonBlocking(n.ctx, n.videoChan, v); err != nil {
-			v.Release()
-			if errors.Is(err, syncx.ErrSendBlocked) {
-				slog.ErrorContext(n.ctx, "video dropped", "node", n.name)
-			}
-		}
-	}
-}
-
-func (n *node) Context() context.Context {
-	return n.ctx
-}
-
-func (n *node) SendSignal(value schema.Signal) {
-	if len(n.table.signals) == 0 || n.ctx.Err() != nil || !n.running.Load() {
-		return
-	}
-	for _, next := range n.table.signals {
-		next.Input(value)
-	}
-}
-
-func (n *node) SendSignalToPort(port int, value schema.Signal) {
-	if port < 0 || port >= MaxPortCount || len(n.portTable[port].signals) == 0 || n.ctx.Err() != nil || !n.running.Load() {
-		return
-	}
-	for _, next := range n.portTable[port].signals {
-		next.Input(value)
-	}
-}
-
-func (n *node) SendPayload(value schema.Payload) {
-	if len(n.table.payloads) == 0 || n.ctx.Err() != nil || !n.running.Load() {
-		return
-	}
-	for _, nn := range n.table.payloads {
-		nn.Input(value)
-	}
-}
-
-func (n *node) SendPayloadToPort(port int, value schema.Payload) {
-	if port < 0 || port >= MaxPortCount || len(n.portTable[port].payloads) == 0 || n.ctx.Err() != nil || !n.running.Load() {
-		return
-	}
-	for _, nn := range n.portTable[port].payloads {
-		nn.Input(value)
-	}
-}
-
-func (n *node) SendAudio(value schema.Audio) {
-	downstreamCount := len(n.table.audios)
-	if downstreamCount == 0 || n.ctx.Err() != nil || !n.running.Load() {
-		return
-	}
-	for range downstreamCount {
-		value.Retain()
-	}
-	for _, nn := range n.table.audios {
-		nn.Input(value)
-	}
-}
-
-func (n *node) SendAudioToPort(port int, value schema.Audio) {
-	if port < 0 || port >= MaxPortCount || n.ctx.Err() != nil || !n.running.Load() {
-		return
-	}
-	nodes := n.portTable[port].audios
-	downstreamCount := len(nodes)
-	if downstreamCount == 0 {
-		return
-	}
-	for range downstreamCount {
-		value.Retain()
-	}
-	for _, nn := range nodes {
-		nn.Input(value)
-	}
-}
-
-func (n *node) SendVideo(value schema.Video) {
-	downstreamCount := len(n.table.videos)
-	if downstreamCount == 0 || n.ctx.Err() != nil || !n.running.Load() {
-		return
-	}
-	for range downstreamCount {
-		value.Retain()
-	}
-	for _, nn := range n.table.videos {
-		nn.Input(value)
-	}
-}
-
-func (n *node) SendVideoToPort(port int, value schema.Video) {
-	if port < 0 || port >= MaxPortCount || n.ctx.Err() != nil || !n.running.Load() {
-		return
-	}
-	nodes := n.portTable[port].videos
-	downstreamCount := len(nodes)
-	if downstreamCount == 0 {
-		return
-	}
-	for range downstreamCount {
-		value.Retain()
-	}
-	for _, nn := range nodes {
-		nn.Input(value)
-	}
-}
-
-func (n *node) Publish(mt protocol.PacketType, data []byte) {
-	n.PublishFull(mt, protocol.EncodeRaw, data)
-}
-
-func (n *node) PublishFull(mt protocol.PacketType, encode protocol.PacketEncode, data []byte) {
-	if n.writer == nil {
-		return
-	}
-	packet := protocol.AcquirePacket()
-	packet.Type = mt
-	packet.Encode = encode
-	packet.SetPayload(data)
-	n.writer.Write(packet)
+func newNode(ctx context.Context, name string, plugin Plugin) *loopNode {
+	return newLoopNode(ctx, name, plugin)
 }
