@@ -212,6 +212,8 @@ const WorkflowPage = React.forwardRef<WorkflowPageHandle, object>((_, ref) => {
       name: wfMetadata.name || '',
       version: wfMetadata.version || '1.0.0',
       head: wfMetadata.head || currentWorkflow.head,
+      scheduler_mode: wfMetadata.scheduler_mode,
+      scheduler_workers: wfMetadata.scheduler_workers,
     };
     await performSave(updatedWf);
     setWfModalOpen(false);
@@ -296,7 +298,9 @@ const WorkflowPage = React.forwardRef<WorkflowPageHandle, object>((_, ref) => {
       version: wf.version || '1.0.0',
       head: '',
       nodes: [],
-      edges: []
+      edges: [],
+      scheduler_mode: wf.scheduler_mode || 'thread-per-node',
+      scheduler_workers: wf.scheduler_workers || 0,
     });
     setNodes([]);
     setEdges([]);

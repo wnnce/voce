@@ -18,14 +18,15 @@ const (
 // Workflow orchestrates a graph of nodes, managing their lifecycle, connectivity,
 // and the backpressure-aware egress of processed packets.
 type Workflow struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	graph    *Graph
-	nodes    []*node
-	indexMap map[string]int        // node ID to nodes index
-	nameMap  map[string]int        // node Name to nodes index
-	output   chan *protocol.Packet // Common egress for all results/media from the workflow
-	state    atomic.Int32
+	ctx       context.Context
+	cancel    context.CancelFunc
+	graph     *Graph
+	nodes     []Node
+	indexMap  map[string]int        // node ID to nodes index
+	nameMap   map[string]int        // node Name to nodes index
+	output    chan *protocol.Packet // Common egress for all results/media from the workflow
+	state     atomic.Int32
+	scheduler *Scheduler
 }
 
 // NewWorkflow creates a new workflow runtime instance from a validated Graph.
@@ -39,6 +40,15 @@ func NewWorkflow(parentCtx context.Context, graph *Graph) (*Workflow, error) {
 		output: make(chan *protocol.Packet, outputBufferSize),
 	}
 	w.state.Store(int32(WorkflowStatePending))
+
+	if graph.Config.SchedulerMode == SchedulerModeWorkerPool {
+		nodeCount := len(graph.OrderedNodes)
+		workers := graph.Config.SchedulerWorkers
+		if workers < 1 || workers > nodeCount {
+			workers = (nodeCount + 3) / 4
+		}
+		w.scheduler = NewScheduler(ctx, workers, 128)
+	}
 
 	if err := w.initNodes(); err != nil {
 		cancel()
@@ -58,7 +68,7 @@ func NewWorkflow(parentCtx context.Context, graph *Graph) (*Workflow, error) {
 }
 
 func (w *Workflow) initNodes() error {
-	w.nodes = make([]*node, len(w.graph.OrderedNodes))
+	w.nodes = make([]Node, len(w.graph.OrderedNodes))
 	w.indexMap = make(map[string]int, len(w.graph.OrderedNodes))
 	w.nameMap = make(map[string]int, len(w.graph.OrderedNodes))
 
@@ -80,7 +90,11 @@ func (w *Workflow) initNodes() error {
 			return fmt.Errorf("failed to build plugin %s (node %s): %w", nodeCfg.Plugin, nodeCfg.ID, err)
 		}
 
-		w.nodes[i] = newNode(w.ctx, nodeCfg.Name, ext)
+		if w.scheduler != nil {
+			w.nodes[i] = newSchedulerNode(w.ctx, nodeCfg.Name, ext, w.scheduler)
+		} else {
+			w.nodes[i] = newLoopNode(w.ctx, nodeCfg.Name, ext)
+		}
 		w.indexMap[nodeCfg.ID] = i
 		w.nameMap[nodeCfg.Name] = i
 	}
@@ -147,31 +161,42 @@ func (w *Workflow) Start() error {
 	startedIndex := -1
 	for i, n := range w.nodes {
 		beforeTime := time.Now().UnixMilli()
-		if err := n.start(); err != nil {
-			slog.ErrorContext(w.ctx, "workflow node start failed", "nodeName", n.name, "error", err)
+		if err := n.Start(); err != nil {
+			slog.ErrorContext(w.ctx, "workflow node start failed", "nodeName", n.Name(), "error", err)
 			w.clearStartError(startedIndex)
 			w.state.Store(int32(WorkflowStateStopped))
-			return fmt.Errorf("failed to start node %s: %w", n.name, err)
+			return fmt.Errorf("failed to start node %s: %w", n.Name(), err)
 		}
 		startedIndex = i
 		onStartTime := time.Now().UnixMilli() - beforeTime
-		slog.InfoContext(w.ctx, "workflow node start success", "nodeName", n.name, "timeMs", onStartTime)
+		slog.InfoContext(w.ctx, "workflow node start success", "nodeName", n.Name(), "timeMs", onStartTime)
 	}
 
 	// Only mark as fully running if everything successfully initialized
 	w.state.Store(int32(WorkflowStateRunning))
 
 	for _, n := range w.nodes {
-		n.ready()
+		n.Ready()
 	}
+
+	mode := w.graph.Config.SchedulerMode
+	if mode == "" {
+		mode = SchedulerModeThreadPerNode
+	}
+	if mode == SchedulerModeWorkerPool && w.scheduler != nil {
+		slog.InfoContext(w.ctx, "workflow started successfully", "scheduler_mode", mode, "scheduler_workers", len(w.scheduler.workers))
+	} else {
+		slog.InfoContext(w.ctx, "workflow started successfully", "scheduler_mode", mode)
+	}
+
 	return nil
 }
 
 func (w *Workflow) clearStartError(index int) {
 	for i := index; i >= 0; i-- {
 		n := w.nodes[i]
-		slog.InfoContext(w.ctx, "workflow node rollback stop", "nodeName", n.name)
-		n.stop()
+		slog.InfoContext(w.ctx, "workflow node rollback stop", "nodeName", n.Name())
+		n.Stop()
 	}
 }
 
@@ -185,8 +210,12 @@ func (w *Workflow) Stop() {
 		w.cancel()
 	}
 
+	if w.scheduler != nil {
+		w.scheduler.Stop()
+	}
+
 	for _, n := range w.nodes {
-		n.stop()
+		n.Stop()
 	}
 
 	close(w.output)
@@ -201,7 +230,7 @@ func (w *Workflow) Pause() error {
 		return fmt.Errorf("workflow cannot be paused (current state: %d)", w.state.Load())
 	}
 	for _, nd := range w.nodes {
-		nd.pause()
+		nd.Pause()
 	}
 	slog.InfoContext(w.ctx, "Workflow paused")
 	return nil
@@ -213,7 +242,7 @@ func (w *Workflow) Resume() error {
 		return fmt.Errorf("workflow cannot be resumed from current state")
 	}
 	for _, nd := range w.nodes {
-		nd.resume()
+		nd.Resume()
 	}
 	slog.InfoContext(w.ctx, "Workflow resumed")
 	return nil

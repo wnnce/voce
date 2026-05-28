@@ -55,17 +55,17 @@ func TestNode_Lifecycle(t *testing.T) {
 	n := newNode(ctx, "test-node", plg)
 
 	// Test Start
-	err := n.start()
+	err := n.Start()
 	require.NoError(t, err)
 	assert.True(t, n.running.Load())
 	assert.Equal(t, int32(1), plg.onStartCount.Load())
 
 	// Test Ready
-	n.ready()
+	n.Ready()
 	assert.Equal(t, int32(1), plg.onReadyCount.Load())
 
 	// Test Stop
-	n.stop()
+	n.Stop()
 	assert.False(t, n.running.Load())
 	cancel()
 	assert.Eventually(t, func() bool {
@@ -91,7 +91,7 @@ func TestNode_DataFlow(t *testing.T) {
 	defer cancel()
 
 	n := newNode(ctx, "test-node", plg)
-	err := n.start()
+	err := n.Start()
 	require.NoError(t, err)
 
 	wg.Add(1)
@@ -129,8 +129,8 @@ func TestNode_RefCounting(t *testing.T) {
 	n1 := newNode(ctx, "sender", plg)
 	n2 := newNode(ctx, "receiver", plg)
 
-	_ = n1.start()
-	_ = n2.start()
+	_ = n1.Start()
+	_ = n2.Start()
 
 	n1.addNextNode(EventAudio, n2)
 
