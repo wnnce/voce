@@ -25,7 +25,7 @@ const WorkflowModal: React.FC<WorkflowModalProps> = ({ open, onClose, onSave, in
   const [name, setName] = useState(initialData?.name || '');
   const [version, setVersion] = useState(initialData?.version || '1.0.0');
   const [head, setHead] = useState(initialData?.head || (nodes?.length ? nodes[0].id : ''));
-  const [schedulerMode, setSchedulerMode] = useState<string>(initialData?.scheduler_mode || 'thread-per-node');
+  const [schedulerMode, setSchedulerMode] = useState<WorkflowConfig['scheduler_mode']>(initialData?.scheduler_mode || 'thread-per-node');
   const [schedulerWorkers, setSchedulerWorkers] = useState<number>(initialData?.scheduler_workers || 0);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,7 +53,7 @@ const WorkflowModal: React.FC<WorkflowModalProps> = ({ open, onClose, onSave, in
       name, 
       version, 
       head,
-      scheduler_mode: schedulerMode as any,
+      scheduler_mode: schedulerMode,
       scheduler_workers: schedulerMode === 'worker-pool' ? schedulerWorkers : undefined
     });
     onClose();
@@ -121,7 +121,7 @@ const WorkflowModal: React.FC<WorkflowModalProps> = ({ open, onClose, onSave, in
                 label="Scheduler Mode"
                 fullWidth
                 value={schedulerMode}
-                onChange={(e) => setSchedulerMode(e.target.value)}
+                onChange={(e) => setSchedulerMode(e.target.value as WorkflowConfig['scheduler_mode'])}
                 size="small"
                 SelectProps={{ native: true }}
                 helperText="Select execution scheduling strategy"
