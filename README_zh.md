@@ -207,6 +207,12 @@ flow.SendPayload(mutable.ReadOnly())
 
 ---
 
+### 5. 灵活的调度策略 (Flexible Scheduling)
+
+支持单节点独占协程（Thread-per-node）与会话级共享协程池（Worker-pool）两种调度模式，可根据工作流负载特征灵活配置并发 Worker 数量。
+
+---
+
 ## 📊 Benchmark
 
 环境：MacBook Pro M5 / 24GB RAM
@@ -248,6 +254,7 @@ flow.SendPayload(mutable.ReadOnly())
 
 - [核心特性](docs/key_features.md)
 - [插件开发指南](docs/plugin.md)
+- [Workflow 与 DAG 编排](docs/workflow.md)
 - [快速开始](docs/quick_start.md)
 - [网关架构设计](docs/gateway.md)
 - [接入协议](docs/protocol.md)

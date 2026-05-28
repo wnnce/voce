@@ -211,6 +211,12 @@ Slow nodes will trigger packet dropping or canceled.
 
 ---
 
+### 5. Flexible Scheduling
+
+Supports both thread-per-node (isolated loops) and worker-pool (cooperative scheduler) execution modes to balance latency based on workload characteristics.
+
+---
+
 ## 📊 Benchmark
 
 Environment: MacBook Pro M5 / 24GB RAM
@@ -252,6 +258,7 @@ Environment: MacBook Pro M5 / 24GB RAM
 
 - [Key Features](docs/key_features.md)
 - [Plugin Development](docs/plugin.md)
+- [Workflow & DAG](docs/workflow.md)
 - [Quick Start](docs/quick_start.md)
 - [Gateway Architecture](docs/gateway.md)
 - [Integration Protocol](docs/protocol.md)
