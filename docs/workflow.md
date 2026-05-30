@@ -182,6 +182,8 @@ Worker 数量由 `scheduler_workers` 配置：
 
 适用于节点数量多但大部分节点处理逻辑轻量的场景，减少 goroutine 数量和上下文切换。
 
+> **注意**：同一 Worker 上的节点共享执行时间。如果某个同步插件阻塞了 80ms，该 Worker 上的其他节点也会被阻塞 80ms。因此在 worker-pool 模式下，有阻塞操作的插件必须使用 `MultiTrackPlugin` 包装为异步模式。
+
 ## 7. 输出与背压
 
 所有节点通过 `flow.Publish` / `flow.PublishFull` 向客户端发送数据时，数据会写入 Workflow 的统一输出 channel（容量 1024）。
