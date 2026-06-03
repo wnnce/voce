@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -201,6 +202,70 @@ func TestMultiTrackPlugin_MultipleSignalsPerTrack(t *testing.T) {
 	assert.Eventually(t, func() bool { return canceled.Load() },
 		300*time.Millisecond, 5*time.Millisecond,
 		"interrupt-b should cancel the active payload context")
+}
+
+// TestMultiTrackPlugin_DropOldest verifies that when the payload track buffer
+// is full and strategy is DropOldest, the oldest item in the buffer is dropped
+// to make room for the new item.
+func TestMultiTrackPlugin_DropOldest(t *testing.T) {
+	const bufSize = 3
+
+	started := make(chan struct{}, 1)
+	unblock := make(chan struct{})
+
+	mock := &MockSlowPlugin{}
+	var processedIDs []int
+	var mu sync.Mutex
+
+	mock.OnPayloadFunc = func(ctx context.Context, flow Flow, payload schema.Payload) {
+		select {
+		case started <- struct{}{}: // signal first execution started
+		default:
+		}
+		<-unblock
+
+		id := schema.GetAs[int](payload, "id", -1)
+		mu.Lock()
+		processedIDs = append(processedIDs, id)
+		mu.Unlock()
+	}
+
+	wrapped := NewMultiTrackPlugin(mock, WithPayloadTrack(bufSize, DropOldest))
+	tester := NewPluginTester(t, wrapped).Start()
+	defer tester.Stop()
+
+	// Inject the first payload and wait for the goroutine to pick it up
+	// (it will block in <-unblock, keeping the channel worker busy).
+	p0 := schema.NewPayload("blocker")
+	_ = p0.Set("id", 0)
+	tester.InjectPayload(p0.ReadOnly())
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first payload never started processing")
+	}
+
+	// Now inject bufSize payloads to fill the buffer (1, 2, 3)
+	// plus 2 extras (4, 5) that should cause the oldest (1, 2) to be dropped.
+	for i := 1; i <= bufSize+2; i++ {
+		p := schema.NewPayload("test")
+		_ = p.Set("id", i)
+		tester.InjectPayload(p.ReadOnly())
+	}
+
+	// Unblock all workers.
+	close(unblock)
+	time.Sleep(300 * time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	// The goroutine processed 0 (blocker).
+	// Buffer had 1, 2, 3. 4 pushed -> dropped 1. 5 pushed -> dropped 2.
+	// Buffer remaining: 3, 4, 5.
+	// So processedIDs should be [0, 3, 4, 5].
+	assert.Equal(t, []int{0, 3, 4, 5}, processedIDs, "older items should be dropped in favor of newer ones")
 }
 
 // videoCaptureMock wraps a plugin and adds an OnVideo hook.

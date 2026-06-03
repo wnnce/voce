@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -41,24 +42,66 @@ func (s *track[T]) push(ctx context.Context, pluginName string, data T) {
 		epoch: s.epoch.Load(),
 		data:  data,
 	}
-	if s.strategy == DropNewest {
-		if err := syncx.SendWithNonBlocking(ctx, s.ch, item); err != nil {
-			if rc, ok := any(data).(schema.RefCountable); ok {
-				rc.Release()
-			}
-			slog.WarnContext(ctx, "stream buffer full, drop newest frame",
-				"plugin", pluginName,
-				"type", fmt.Sprintf("%T", data))
-		}
-		return
+	switch s.strategy {
+	case DropNewest:
+		s.pushDropNewest(ctx, pluginName, item)
+	case BlockIfFull:
+		s.pushBlockIfFull(ctx, pluginName, item)
+	case DropOldest:
+		s.pushDropOldest(ctx, pluginName, item)
+	default:
+		s.pushBlockIfFull(ctx, pluginName, item)
 	}
+}
+
+func (s *track[T]) pushDropNewest(ctx context.Context, pluginName string, item internalData[T]) {
+	if err := syncx.SendWithNonBlocking(ctx, s.ch, item); err != nil {
+		if rc, ok := any(item.data).(schema.RefCountable); ok {
+			rc.Release()
+		}
+		slog.WarnContext(ctx, "stream buffer full, drop newest frame",
+			"plugin", pluginName,
+			"type", fmt.Sprintf("%T", item.data))
+	}
+}
+
+func (s *track[T]) pushBlockIfFull(ctx context.Context, pluginName string, item internalData[T]) {
 	if err := syncx.SendWithContext(ctx, s.ch, item); err != nil {
-		if rc, ok := any(data).(schema.RefCountable); ok {
+		if rc, ok := any(item.data).(schema.RefCountable); ok {
 			rc.Release()
 		}
 		slog.ErrorContext(ctx, "stream input blocked and context canceled",
 			"plugin", pluginName,
-			"type", fmt.Sprintf("%T", data))
+			"type", fmt.Sprintf("%T", item.data))
+	}
+}
+
+func (s *track[T]) pushDropOldest(ctx context.Context, pluginName string, item internalData[T]) {
+	for {
+		err := syncx.SendWithNonBlocking(ctx, s.ch, item)
+		if err == nil {
+			return
+		}
+		if errors.Is(err, syncx.ErrSendBlocked) {
+			select {
+			case dropped := <-s.ch:
+				if rc, ok := any(dropped.data).(schema.RefCountable); ok {
+					rc.Release()
+				}
+				slog.WarnContext(ctx, "stream buffer full, drop oldest frame",
+					"plugin", pluginName,
+					"type", fmt.Sprintf("%T", dropped.data))
+			default:
+			}
+		} else {
+			if rc, ok := any(item.data).(schema.RefCountable); ok {
+				rc.Release()
+			}
+			slog.ErrorContext(ctx, "stream input blocked and context canceled",
+				"plugin", pluginName,
+				"type", fmt.Sprintf("%T", item.data))
+			return
+		}
 	}
 }
 
@@ -153,7 +196,7 @@ func WithVideoTrack(bufSize int, strategy DropStrategy, signals ...string) Track
 //  1. Parallelism: Prevents a slow LLM/Payload handler from blocking real-time Audio streaming.
 //  2. Interruption: Specific signals (e.g., "interrupt") can cancel the context of active tasks
 //     and discard all queued items in the track's buffer.
-//  3. Backpressure: Supports DropNewest or Block strategies to manage system load.
+//  3. Backpressure: Supports DropNewest, DropOldest or Block strategies to manage system load.
 type MultiTrackPlugin struct {
 	ctx    context.Context
 	flow   Flow

@@ -203,6 +203,7 @@ func (p *LLMPlugin) OnPayload(ctx context.Context, flow engine.Flow, data schema
 - **背压策略 (Drop Strategy)**：
   - `BlockIfFull`: 缓冲区满时阻塞上游，确保数据不丢失。
   - `DropNewest`: 缓冲区满时丢弃最新进入的数据包，适用于实时性要求极高的音频/视频流。
+  - `DropOldest`: 缓冲区满时自动丢弃队列中最老的数据包，适用于只关注最新状态的场景。
 
 ## 7. 插件注册 (Registration)
 

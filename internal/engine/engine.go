@@ -43,4 +43,5 @@ type DropStrategy int
 const (
 	DropNewest DropStrategy = iota
 	BlockIfFull
+	DropOldest
 )
