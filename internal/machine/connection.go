@@ -19,21 +19,6 @@ type Connection struct {
 	handle MessageHandler
 }
 
-func machinePacketTypeName(t protocol.PacketType) string {
-	switch t {
-	case protocol.TypeAudio:
-		return "audio"
-	case protocol.TypePause:
-		return "pause"
-	case protocol.TypeResume:
-		return "resume"
-	case protocol.TypeClose:
-		return "close"
-	default:
-		return "unknown"
-	}
-}
-
 // NewConnection creates a new pool connection instance.
 func NewConnection(handle MessageHandler) *Connection {
 	return &Connection{

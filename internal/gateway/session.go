@@ -28,6 +28,23 @@ const (
 	SessionClosed
 )
 
+func (s SessionState) String() string {
+	switch s {
+	case SessionIdle:
+		return "idle"
+	case SessionPending:
+		return "pending"
+	case SessionReady:
+		return "ready"
+	case SessionClosing:
+		return "closing"
+	case SessionClosed:
+		return "closed"
+	default:
+		return "unknown"
+	}
+}
+
 // Session represents an end-to-end user conversation session.
 // It maps a client WebSocket connection to a specific backend machine.
 type Session struct {
@@ -39,21 +56,6 @@ type Session struct {
 	lastActiveAt atomic.Int64
 	state        atomic.Int32
 	connectCount atomic.Int32
-}
-
-func gatewayPacketTypeName(t protocol.PacketType) string {
-	switch t {
-	case protocol.TypeAudio:
-		return "audio"
-	case protocol.TypePause:
-		return "pause"
-	case protocol.TypeResume:
-		return "resume"
-	case protocol.TypeClose:
-		return "close"
-	default:
-		return "unknown"
-	}
 }
 
 // NewSession creates a new session mapping for the given key.
@@ -280,7 +282,7 @@ func (m *SessionManager) DispatchMessage(key protocol.SessionKey, data []byte) {
 				"session", key,
 				"state", session.State(),
 				"hasClient", session.client != nil,
-				"type", gatewayPacketTypeName(packet.Type),
+				"type", packet.Type,
 			)
 			return
 		}

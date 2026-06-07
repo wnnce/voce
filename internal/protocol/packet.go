@@ -39,6 +39,48 @@ const (
 	TypeAgentSpeechEnd   PacketType = 0x16
 )
 
+func (t PacketType) String() string {
+	switch t {
+	case TypeAudio:
+		return "audio"
+	case TypeError:
+		return "error"
+	case TypeText:
+		return "text"
+	case TypeClose:
+		return "close"
+	case TypePause:
+		return "pause"
+	case TypeResume:
+		return "resume"
+	case TypeInterrupter:
+		return "interrupter"
+	case TypeCaption:
+		return "caption"
+	case TypeUserSpeechStart:
+		return "user_speech_start"
+	case TypeUserSpeechEnd:
+		return "user_speech_end"
+	case TypeAgentSpeechStart:
+		return "agent_speech_start"
+	case TypeAgentSpeechEnd:
+		return "agent_speech_end"
+	default:
+		return "unknown"
+	}
+}
+
+func (e PacketEncode) String() string {
+	switch e {
+	case EncodeRaw:
+		return "raw"
+	case EncodeJSON:
+		return "json"
+	default:
+		return "unknown"
+	}
+}
+
 var (
 	ErrInvalidHeader   = errors.New("invalid packet header")
 	ErrMagicMismatch   = errors.New("magic number mismatch")

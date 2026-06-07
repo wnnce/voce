@@ -32,3 +32,16 @@ const (
 	ConnectionConnecting
 	ConnectionClosed
 )
+
+func (s ConnectionState) String() string {
+	switch s {
+	case ConnectionActive:
+		return "active"
+	case ConnectionConnecting:
+		return "connecting"
+	case ConnectionClosed:
+		return "closed"
+	default:
+		return "unknown"
+	}
+}

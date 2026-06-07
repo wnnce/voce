@@ -46,6 +46,21 @@ const (
 	VadModeVeryAggressive VadMode = 3
 )
 
+func (m VadMode) String() string {
+	switch m {
+	case VadModeNormal:
+		return "normal"
+	case VadModeLowBitrate:
+		return "low_bitrate"
+	case VadModeAggressive:
+		return "aggressive"
+	case VadModeVeryAggressive:
+		return "very_aggressive"
+	default:
+		return "unknown"
+	}
+}
+
 // VadError represents an error from the TenVAD library.
 type VadError struct {
 	Code    int

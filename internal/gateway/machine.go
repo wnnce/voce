@@ -26,6 +26,19 @@ const (
 	MachineStateTerminated
 )
 
+func (m MachineState) String() string {
+	switch m {
+	case MachineStateActive:
+		return "active"
+	case MachineStateSuspended:
+		return "suspended"
+	case MachineStateTerminated:
+		return "terminated"
+	default:
+		return "unknown"
+	}
+}
+
 var ErrMachineNotActive = errors.New("machine is not active")
 
 // Machine represents a backend worker pod that executes workflows.

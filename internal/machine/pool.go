@@ -83,7 +83,7 @@ func (m *ConnectionManager) handleMessage(key protocol.SessionKey, packet *proto
 	session, exist := m.sm.LoadSession(key)
 	if !exist {
 		slog.Warn("machine dropped pool packet for missing session",
-			"session", key, "type", machinePacketTypeName(packet.Type), "payloadSize", len(packet.Payload),
+			"session", key, "type", packet.Type, "payloadSize", len(packet.Payload),
 		)
 		return
 	}
