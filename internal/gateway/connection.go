@@ -14,6 +14,7 @@ import (
 	"github.com/wnnce/voce/internal/protocol"
 	"github.com/wnnce/voce/pkg/buf"
 	"github.com/wnnce/voce/pkg/pool"
+	"github.com/wnnce/voce/pkg/retry"
 )
 
 type MessageDispatcher func(key protocol.SessionKey, data []byte)
@@ -102,21 +103,14 @@ func (c *Connection) Connect() error {
 
 // reconnectLoop handles exponential backoff reconnection when a connection drops.
 func (c *Connection) reconnectLoop() {
-	backoff := 500 * time.Millisecond
+	backoff := retry.NewBackoff(500*time.Millisecond, 10*time.Second)
 	for {
 		if c.ctx.Err() != nil || c.State() != protocol.ConnectionConnecting {
 			return
 		}
 		if err := c.Connect(); err != nil {
-			// Exponential backoff
-			select {
-			case <-c.ctx.Done():
+			if err := backoff.Wait(c.ctx); err != nil {
 				return
-			case <-time.After(backoff):
-				backoff *= 2
-				if backoff > 10*time.Second {
-					backoff = 10 * time.Second
-				}
 			}
 			continue
 		}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lxzan/gws"
+	"github.com/wnnce/voce/pkg/retry"
 )
 
 // Registrar handles the machine registration with the gateway.
@@ -19,6 +20,7 @@ type Registrar struct {
 	id          string
 	gatewayAddr string
 	port        int
+	backoff     *retry.Backoff
 }
 
 func NewRegistrar(ctx context.Context, id, gatewayAddr string, port int) *Registrar {
@@ -30,6 +32,7 @@ func NewRegistrar(ctx context.Context, id, gatewayAddr string, port int) *Regist
 		id:          id,
 		gatewayAddr: gatewayAddr,
 		port:        port,
+		backoff:     retry.NewBackoff(500*time.Millisecond, 10*time.Second),
 	}
 }
 
@@ -38,11 +41,6 @@ func (r *Registrar) Start() {
 }
 
 func (r *Registrar) reconnectLoop() {
-	const (
-		initialBackoff = 500 * time.Millisecond
-		maxBackoff     = 10 * time.Second
-	)
-	backoff := initialBackoff
 	for {
 		if r.ctx.Err() != nil {
 			slog.Info("stopping registrar", "id", r.id)
@@ -52,21 +50,14 @@ func (r *Registrar) reconnectLoop() {
 			slog.Error("gateway registration failed, retrying",
 				"error", err,
 				"id", r.id,
-				"gateway", r.gatewayAddr,
-				"backoff", backoff)
+				"gateway", r.gatewayAddr)
 
-			select {
-			case <-r.ctx.Done():
+			if err := r.backoff.Wait(r.ctx); err != nil {
 				return
-			case <-time.After(backoff):
-				backoff *= 2
-				if backoff > maxBackoff {
-					backoff = maxBackoff
-				}
 			}
 			continue
 		}
-		backoff = initialBackoff
+		r.backoff.Reset()
 	}
 }
 

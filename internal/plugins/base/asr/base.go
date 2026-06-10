@@ -8,6 +8,7 @@ import (
 
 	"github.com/wnnce/voce/internal/engine"
 	"github.com/wnnce/voce/internal/schema"
+	"github.com/wnnce/voce/pkg/retry"
 )
 
 // UserTranscription is the standard output format for all ASR providers.
@@ -41,12 +42,13 @@ type BasePlugin struct {
 	Flow     engine.Flow
 	paused   atomic.Bool
 
-	retryAt time.Time
+	backoff *retry.Backoff
 }
 
 func (e *BasePlugin) OnStart(ctx context.Context, flow engine.Flow) error {
 	e.Ctx = ctx
 	e.Flow = flow
+	e.backoff = retry.NewBackoff(500*time.Millisecond, 5*time.Second)
 	return nil
 }
 
@@ -77,17 +79,15 @@ func (e *BasePlugin) OnAudio(ctx context.Context, flow engine.Flow, audio schema
 	}
 
 	if !e.Provider.Connected() {
-		now := time.Now()
-		if now.Before(e.retryAt) {
+		if !e.backoff.Try() {
 			return
 		}
-
 		if err := e.Provider.Start(ctx); err != nil {
-			e.retryAt = now.Add(3 * time.Second)
-			slog.ErrorContext(ctx, "asr provider start failed, will retry after 3s", "error", err)
+			e.backoff.Fail()
+			slog.ErrorContext(ctx, "asr provider start failed, will retry", "error", err)
 			return
 		}
-		e.retryAt = time.Time{}
+		e.backoff.Reset()
 	}
 
 	// Send audio bytes to the specific provider implementation.
