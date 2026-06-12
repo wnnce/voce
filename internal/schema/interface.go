@@ -35,12 +35,14 @@ type RefCountable interface {
 // for zero-allocation data passing.
 type ReadOnly interface {
 	Get(key string) (any, bool)
-	Bind(key string, value any) error // Bind unmarshals the value into a destination object
+	Bind(key string, value any) error // Bind unmarshal the value into a destination object
+	Unpack(dst any) error             // Unpack properties into dst (schema → struct)
 }
 
 type Properties interface {
 	ReadOnly
 	Set(key string, value any) error
+	Pack(src any) error // Pack fields from src into properties (struct → schema)
 }
 
 // View is the shared read-only base for all named schema objects.
@@ -134,6 +136,20 @@ func (b *builtinProperties) Set(key string, value any) error {
 		val: dst,
 	})
 	return nil
+}
+
+func (b *builtinProperties) Pack(src any) error {
+	if m, ok := src.(Packer); ok {
+		return m.PackSchema(b)
+	}
+	return reflectPack(b, src)
+}
+
+func (b *builtinProperties) Unpack(dst any) error {
+	if u, ok := dst.(Unpacker); ok {
+		return u.UnpackSchema(b)
+	}
+	return reflectUnpack(b, dst)
 }
 
 func (b *builtinProperties) snapshot(value any) (any, error) {
