@@ -20,6 +20,26 @@ type UserTranscription struct {
 	Stable       bool   `json:"stable,omitempty"` // Whether the result is stable (usually for streaming)
 }
 
+func (u *UserTranscription) UnpackSchema(data schema.ReadOnly) error {
+	u.Text = schema.GetAs(data, "text", "")
+	u.Final = schema.GetAs(data, "is_final", false)
+	u.Emotion = schema.GetAs(data, "emotion", "")
+	return nil
+}
+
+func (u *UserTranscription) PackSchema(props schema.Properties) error {
+	if err := props.Set("text", u.Text); err != nil {
+		return err
+	}
+	if err := props.Set("is_final", u.Final); err != nil {
+		return err
+	}
+	if err := props.Set("emotion", u.Emotion); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Provider defines the interface for specific ASR engine implementations.
 type Provider interface {
 	// Start begins the transcription session.
@@ -104,11 +124,6 @@ func (e *BasePlugin) HandleTranscription(t *UserTranscription) {
 	}
 
 	outPayload := schema.NewPayload(schema.PayloadASRResult)
-	_ = outPayload.Set("text", t.Text)
-	_ = outPayload.Set("is_final", t.Final)
-
-	if t.Emotion != "" {
-		_ = outPayload.Set("emotion", t.Emotion)
-	}
+	_ = outPayload.Pack(t)
 	e.Flow.SendPayload(outPayload.ReadOnly())
 }
