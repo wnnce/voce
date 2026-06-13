@@ -169,7 +169,6 @@ func init() {
 		Outputs: engine.NewPropertyBuilder().
 			AddPayload(schema.PayloadASRResult, "text", engine.TypeString, true).
 			AddPayload(schema.PayloadASRResult, "is_final", engine.TypeBoolean, true).
-			AddPayload(schema.PayloadASRResult, "role", engine.TypeString, true).
 			AddPayload(schema.PayloadASRResult, "emotion", engine.TypeString, false).
 			Build(),
 	}); err != nil {

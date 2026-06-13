@@ -163,7 +163,6 @@ func init() {
 		Outputs: engine.NewPropertyBuilder().
 			AddPayload(schema.PayloadASRResult, "text", engine.TypeString, true).
 			AddPayload(schema.PayloadASRResult, "is_final", engine.TypeBoolean, true).
-			AddPayload(schema.PayloadASRResult, "role", engine.TypeString, true).
 			Build(),
 	}); err != nil {
 		panic(err)
