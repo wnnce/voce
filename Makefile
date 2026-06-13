@@ -1,4 +1,4 @@
-.PHONY: all build build-gateway build-web build-tui build-all test test-gateway lint fmt clean help deps
+.PHONY: all build build-gateway build-web build-tui build-all test test-gateway lint fmt clean help deps generate
 
 # Configuration
 BINARY_NAME=voce
@@ -16,7 +16,7 @@ TEN_VAD_REPO=https://github.com/TEN-framework/ten-vad.git
 all: build-all
 
 # 1. Backend Build (depends on web-build for embedding and deps)
-build: deps build-web
+build: deps generate build-web
 	@echo "Building backend $(BINARY_NAME)..."
 	@mkdir -p $(BIN_DIR)
 	go build -o $(BIN_DIR)/$(BINARY_NAME) $(CMD_PATH)
@@ -55,7 +55,11 @@ build-all: build build-gateway build-tui
 # Testing
 test: test-backend test-tui
 
-test-backend: deps
+generate:
+	@echo "Generating code..."
+	go generate ./internal/plugins
+
+test-backend: deps generate
 	@echo "Running backend tests..."
 	go test -v ./...
 
@@ -114,5 +118,6 @@ help:
 	@echo "  make build-all  - Build all components (Backend, Gateway, Web, TUI)"
 	@echo "  make test       - Run all project tests"
 	@echo "  make test-gateway - Run gateway unit tests"
+	@echo "  make generate   - Generate code"
 	@echo "  make lint       - Run all linters"
 	@echo "  make clean      - Remove all build artifacts"
