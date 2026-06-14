@@ -16,10 +16,25 @@ import {
   TextField,
   Tooltip,
   Grid,
+  Tabs,
+  Tab,
+  Alert,
   type SelectChangeEvent
 } from '@mui/material';
 import Form from '@rjsf/mui';
 import validator from '@rjsf/validator-ajv8';
+import CodeMirror from '@uiw/react-codemirror';
+import { json } from '@codemirror/lang-json';
+import {
+  ChevronRight,
+  Terminal,
+  Database,
+  Mic,
+  Video,
+  ArrowRightLeft,
+  Info,
+  Hash
+} from 'lucide-react';
 import type { PluginInfo, Property, PortMetadata, Field } from '@/types/workflow';
 
 interface NodeConfigModalProps {
@@ -31,16 +46,23 @@ interface NodeConfigModalProps {
   existingNames?: string[];
 }
 
-import { 
-  ChevronRight, 
-  Terminal, 
-  Database, 
-  Mic, 
-  Video, 
-  ArrowRightLeft, 
-  Info,
-  Hash
-} from 'lucide-react';
+type ConfigMode = 'form' | 'custom';
+
+const stringifyConfig = (config: Record<string, unknown>) => JSON.stringify(config, null, 2);
+
+const parseJsonConfig = (value: string): { config?: Record<string, unknown>; error: string } => {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') {
+      return { error: 'Configuration must be a JSON object' };
+    }
+    return { config: parsed as Record<string, unknown>, error: '' };
+  } catch (err) {
+    return {
+      error: err instanceof Error ? err.message : 'Invalid JSON',
+    };
+  }
+};
 
 // Help component to render a list of properties
 const PropertyList: React.FC<{ 
@@ -168,10 +190,13 @@ const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
   plugins,
   existingNames = [],
 }) => {
-  const [selectedPlugin, setSelectedPlugin] = useState<PluginInfo | null>(() => 
-    plugins.find((e) => e.name === nodeData?.plugin) || null
-  );
+  const initialSelectedPlugin = plugins.find((e) => e.name === nodeData?.plugin) || null;
+  const [selectedPlugin, setSelectedPlugin] = useState<PluginInfo | null>(initialSelectedPlugin);
   const [formData, setFormData] = useState<Record<string, unknown>>(() => nodeData?.config || {});
+  const [configMode, setConfigMode] = useState<ConfigMode>(() => initialSelectedPlugin?.schema ? 'form' : 'custom');
+  const [jsonText, setJsonText] = useState(() => stringifyConfig(nodeData?.config || {}));
+  const [jsonError, setJsonError] = useState('');
+  const [customDirty, setCustomDirty] = useState(false);
   const [name, setName] = useState(nodeData?.name || '');
   const [error, setError] = useState('');
 
@@ -180,6 +205,25 @@ const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
     const plugin = plugins.find((e) => e.name === pluginName);
     setSelectedPlugin(plugin || null);
     setFormData({}); // Reset config on plugin change
+    setJsonText(stringifyConfig({}));
+    setJsonError('');
+    setCustomDirty(false);
+    setConfigMode(plugin?.schema ? 'form' : 'custom');
+  };
+
+  const handleConfigModeChange = (_: React.SyntheticEvent, mode: ConfigMode) => {
+    if (mode === 'custom' && configMode === 'form' && !customDirty) {
+      const nextJsonText = stringifyConfig(formData);
+      setJsonText(nextJsonText);
+      setJsonError(parseJsonConfig(nextJsonText).error);
+    }
+    setConfigMode(mode);
+  };
+
+  const handleJsonChange = (value: string) => {
+    setJsonText(value);
+    setJsonError(parseJsonConfig(value).error);
+    setCustomDirty(true);
   };
 
   const handleNameChange = (val: string) => {
@@ -199,10 +243,21 @@ const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
 
   const handleSave = () => {
     if (!name.trim() || !selectedPlugin || error) return;
+
+    let config = formData;
+    if (configMode === 'custom') {
+      const result = parseJsonConfig(jsonText);
+      if (result.error || !result.config) {
+        setJsonError(result.error);
+        return;
+      }
+      config = result.config;
+    }
+
     onSave({
       name,
       plugin: selectedPlugin.name,
-      config: formData,
+      config,
     });
     onClose();
   };
@@ -255,20 +310,46 @@ const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
                 </Stack>
               </Box>
 
-              {selectedPlugin && selectedPlugin.schema && (
+              {selectedPlugin && (
                 <Box>
                   <Typography variant="caption" fontWeight="bold" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
                     CONFIGURATION
                   </Typography>
-                  <Box className="rjsf-grid" sx={{ p: 2, bgcolor: 'background.default', borderRadius: 1, border: '1px dashed', borderColor: 'divider' }}>
-                    <Form
-                      schema={selectedPlugin.schema}
-                      validator={validator}
-                      formData={formData}
-                      onChange={(e) => setFormData(e.formData)}
-                      children={<></>}
-                    />
-                  </Box>
+                  <Tabs
+                    value={configMode}
+                    onChange={handleConfigModeChange}
+                    sx={{ minHeight: 36, mb: 1, borderBottom: 1, borderColor: 'divider' }}
+                  >
+                    <Tab label="Form" value="form" disabled={!selectedPlugin.schema} sx={{ minHeight: 36, py: 0 }} />
+                    <Tab label="Custom JSON" value="custom" sx={{ minHeight: 36, py: 0 }} />
+                  </Tabs>
+                  {configMode === 'form' && selectedPlugin.schema ? (
+                    <Box className="rjsf-grid" sx={{ p: 2, bgcolor: 'background.default', borderRadius: 1, border: '1px dashed', borderColor: 'divider' }}>
+                      <Form
+                        schema={selectedPlugin.schema}
+                        validator={validator}
+                        formData={formData}
+                        onChange={(e) => setFormData(e.formData)}
+                        children={<></>}
+                      />
+                    </Box>
+                  ) : (
+                    <Stack spacing={1}>
+                      <Box sx={{ overflow: 'hidden', borderRadius: 1, border: 1, borderColor: jsonError ? 'error.main' : 'divider' }}>
+                        <CodeMirror
+                          value={jsonText}
+                          height="320px"
+                          extensions={[json()]}
+                          onChange={handleJsonChange}
+                        />
+                      </Box>
+                      {jsonError && (
+                        <Alert severity="error" sx={{ py: 0 }}>
+                          {jsonError}
+                        </Alert>
+                      )}
+                    </Stack>
+                  )}
                 </Box>
               )}
             </Stack>
@@ -310,7 +391,7 @@ const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
           onClick={handleSave} 
           variant="contained" 
           color="primary"
-          disabled={!name.trim() || !selectedPlugin || !!error}
+          disabled={!name.trim() || !selectedPlugin || !!error || (configMode === 'custom' && !!jsonError)}
         >
           {nodeData ? 'Update Node' : 'Add Node'}
         </Button>
