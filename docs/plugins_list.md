@@ -18,7 +18,13 @@ Voce 采用插件化服务，通过不同的插件组合实现多模态能力的
 
 - **openai_llm**: 支持 OpenAI 协议的 LLM（包括 GPT-4o, DeepSeek, Kimi 等兼容协议）。
 
-### 3. 语音合成 (TTS)
+### 3. 实时多模态大模型 (MLLM)
+
+负责直接接入实时语音/多模态大模型，支持在单个插件内完成实时输入音频处理、模型响应和音频输出。
+
+- **mllm**: 实时多模态大模型插件，目前支持 Qwen-Omni-Realtime，用于低延迟语音对话链路。
+
+### 4. 语音合成 (TTS)
 
 将文本转换为实时音频流。
 
@@ -26,7 +32,7 @@ Voce 采用插件化服务，通过不同的插件组合实现多模态能力的
 - **elevenlabs_tts**: ElevenLabs 语音合成，支持 `previous_text` 上下文衔接。
 - **openai_tts**: OpenAI 原生语音合成。
 
-### 4. 流程控制与辅助 (Control & Utils)
+### 5. 流程控制与辅助 (Control & Utils)
 
 - **interrupter**: 实时打断控制器，负责发送打断信号。
 - **ten_vad**: TEN 原生 VAD 插件，用于 PCM16 16k 音频的实时检测。
