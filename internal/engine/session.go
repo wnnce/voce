@@ -31,6 +31,7 @@ type SessionManager struct {
 	sessions       map[protocol.SessionKey]*Session
 	mu             sync.RWMutex
 	wm             WorkflowConfigManager
+	store          *PluginStore
 	timeout        time.Duration
 	ticker         *time.Ticker
 	onCreated      []SessionObserver
@@ -41,11 +42,12 @@ type SessionManager struct {
 	cancel         context.CancelFunc
 }
 
-func NewSessionManager(wm WorkflowConfigManager, timeout time.Duration) *SessionManager {
+func NewSessionManager(wm WorkflowConfigManager, store *PluginStore, timeout time.Duration) *SessionManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	sm := &SessionManager{
 		sessions:  make(map[protocol.SessionKey]*Session),
 		wm:        wm,
+		store:     store,
 		timeout:   timeout,
 		ctx:       ctx,
 		cancel:    cancel,
@@ -164,12 +166,17 @@ func (sm *SessionManager) CreateSession(
 
 	newCfg := sm.cloneAndMergeConfig(cfg, properties)
 
-	graph, err := BuildGraph(&newCfg)
+	builders, err := ResolvePluginBuilders(sm.store, newCfg.Nodes)
+	if err != nil {
+		return nil, err
+	}
+
+	graph, err := BuildGraph(&newCfg, builders)
 	if err != nil {
 		return nil, fmt.Errorf("build graph: %w", err)
 	}
 
-	wf, err := NewWorkflow(ctx, graph)
+	wf, err := NewWorkflow(ctx, graph, builders)
 	if err != nil {
 		return nil, fmt.Errorf("new workflow: %w", err)
 	}

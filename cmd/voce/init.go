@@ -20,6 +20,7 @@ type appBase struct {
 	container route.AppContainer
 	sm        *engine.SessionManager
 	wm        engine.WorkflowConfigManager
+	store     *engine.PluginStore
 }
 
 func InitApplication(_ context.Context, cfg config.VoceBootstrap) (route.AppContainer, func(), error) {
@@ -51,32 +52,36 @@ func initBaseApplication(cfg config.VoceBootstrap) (*appBase, error) {
 	}
 	slog.SetDefault(logger)
 
+	store := engine.NewPluginStore(engine.LocalPluginResource())
+
 	var wm engine.WorkflowConfigManager
 	if cfg.Server.WorkflowStore == "redis" {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		rCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		rdb, err := dal.NewRedisClient(ctx, cfg.Redis)
-		if err != nil {
-			return nil, err
+		rdb, er := dal.NewRedisClient(rCtx, cfg.Redis)
+		if er != nil {
+			return nil, er
 		}
-		wm = engine.NewRedisWorkflowConfigManager(rdb)
+		wm = engine.NewRedisWorkflowConfigManager(rdb, store)
 	} else {
 		dir := cfg.Server.WorkflowDir
 		if dir == "" {
 			dir = "configs/workflows"
 		}
-		wm = engine.NewFileWorkflowConfigManager(dir)
+		wm = engine.NewFileWorkflowConfigManager(dir, store)
 	}
 
-	sm := engine.NewSessionManager(wm, 1*time.Minute)
+	sm := engine.NewSessionManager(wm, store, 1*time.Minute)
 
 	base := &appBase{
-		sm: sm,
-		wm: wm,
+		sm:    sm,
+		wm:    wm,
+		store: store,
 	}
+
 	base.container.Workflow = handler.NewWorkflowHandler(wm)
-	base.container.Plugin = handler.NewPluginHandler()
+	base.container.Plugin = handler.NewPluginHandler(store)
 	base.container.Monitor = handler.NewMonitorHandler(sm)
 	base.container.Realtime = realtime.NewHandler(sm)
 	base.container.Grpc = realtime.NewStreamService(sm)

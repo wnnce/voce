@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"sync"
 
 	"github.com/invopop/jsonschema"
 	"github.com/wnnce/voce/internal/schema"
@@ -61,45 +60,17 @@ type (
 	}
 )
 
-var (
-	plugins = make(map[string]PluginBuilder)
-	mutex   sync.RWMutex
-)
+var localPluginResource = NewPluginResource(LocalNamespace)
+
+func LocalPluginResource() *PluginResource {
+	return localPluginResource
+}
 
 func RegisterPlugin[T PluginConfig](factory PluginFactory[T], meta PluginMetadata) error {
-	mutex.Lock()
-	defer mutex.Unlock()
-	if _, ok := plugins[meta.Name]; ok {
-		return fmt.Errorf("plugin %s already registered", meta.Name)
-	}
-
-	for _, port := range meta.Ports {
-		if err := port.Validate(); err != nil {
-			return err
-		}
-	}
-
-	plugins[meta.Name] = &GenericBuilder[T]{
+	return localPluginResource.RegisterBuilder(&GenericBuilder[T]{
 		meta:    meta,
 		factory: factory,
-	}
-	return nil
-}
-
-func LoadPluginBuilder(name string) PluginBuilder {
-	mutex.RLock()
-	defer mutex.RUnlock()
-	return plugins[name]
-}
-
-func GetPluginBuilders() []PluginBuilder {
-	mutex.RLock()
-	defer mutex.RUnlock()
-	list := make([]PluginBuilder, 0, len(plugins))
-	for _, b := range plugins {
-		list = append(list, b)
-	}
-	return list
+	})
 }
 
 func (p *PortMetadata) Validate() error {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"slices"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/wnnce/voce/internal/engine"
@@ -22,6 +23,21 @@ func (h *WorkflowHandler) ListWorkflows(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		return err
 	}
+	slices.SortStableFunc(list, func(a, b engine.WorkflowConfig) int {
+		if a.Name < b.Name {
+			return -1
+		}
+		if a.Name > b.Name {
+			return 1
+		}
+		if a.ID < b.ID {
+			return -1
+		}
+		if a.ID > b.ID {
+			return 1
+		}
+		return 0
+	})
 	return httpx.JSON(w, http.StatusOK, result.SuccessData(list))
 }
 

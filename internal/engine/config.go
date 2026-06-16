@@ -18,11 +18,12 @@ type WorkflowConfig struct {
 
 // NodeConfig Represent a specific instance of an Plugin within the Workflow.
 type NodeConfig struct {
-	ID       string          `json:"id"`
-	Name     string          `json:"name"`
-	Plugin   string          `json:"plugin"`
-	Config   json.RawMessage `json:"config"`
-	Metadata map[string]any  `json:"metadata"`
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Namespace string          `json:"namespace,omitempty"`
+	Plugin    string          `json:"plugin"`
+	Config    json.RawMessage `json:"config"`
+	Metadata  map[string]any  `json:"metadata"`
 }
 
 // EdgeConfig Represents the directed data/control flow between two nodes.

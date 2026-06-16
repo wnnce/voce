@@ -53,7 +53,7 @@ func TestPluginRegistry_ConfigTypes(t *testing.T) {
 		// This works because ValueConfig implements PluginConfig (value receiver Decode)
 		err := RegisterPlugin(factory, PluginMetadata{Name: name})
 		require.NoError(t, err)
-		builder := LoadPluginBuilder(name)
+		builder := LocalPluginResource().LoadBuilder(name)
 		require.NotNil(t, builder)
 
 		// Check Schema correctly identifies the struct
@@ -77,7 +77,7 @@ func TestPluginRegistry_ConfigTypes(t *testing.T) {
 			Name: name,
 		})
 		require.NoError(t, err)
-		builder := LoadPluginBuilder(name)
+		builder := LocalPluginResource().LoadBuilder(name)
 		require.NotNil(t, builder)
 
 		// Check Schema correctly identifies the underlying struct even from pointer
