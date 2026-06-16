@@ -1,0 +1,206 @@
+syntax = "proto3";
+
+package plugin.v1;
+
+option go_package = "github.com/wnnce/voce/api/plugin/v1;plugin";
+
+// RemotePluginService is implemented by a remote plugin server.
+service RemotePluginService {
+  // Ping is a lightweight unary heartbeat request.
+  rpc Ping(PingRequest) returns (PingResponse);
+
+  // ListPlugins returns plugin metadata exposed by the remote plugin server.
+  rpc ListPlugins(ListPluginsRequest) returns (ListPluginsResponse);
+
+  // CreateInstance creates one plugin instance for a workflow node/session.
+  rpc CreateInstance(CreateInstanceRequest) returns (CreateInstanceResponse);
+
+  // DestroyInstance releases a previously created plugin instance.
+  rpc DestroyInstance(DestroyInstanceRequest) returns (DestroyInstanceResponse);
+
+  // RunInstance is the dedicated bidirectional event stream for one plugin instance.
+  rpc RunInstance(stream RuntimeMessage) returns (stream RuntimeMessage);
+}
+
+message PingRequest {
+  string client_id = 1;
+}
+
+message PingResponse {
+  string server_id = 1;
+  string version = 2;
+}
+
+message ListPluginsRequest {
+  string namespace = 1;
+}
+
+message ListPluginsResponse {
+  repeated PluginMetadata plugins = 1;
+}
+
+message CreateInstanceRequest {
+  string instance_id = 1;
+  string plugin_name = 2;
+  bytes config = 3;
+  map<string, string> metadata = 4;
+}
+
+message CreateInstanceResponse {
+  string instance_id = 1;
+}
+
+message DestroyInstanceRequest {
+  string instance_id = 1;
+  string reason = 2;
+}
+
+message DestroyInstanceResponse {}
+
+message PluginMetadata {
+  string name = 1;
+  string description = 2;
+  bool multi_wrapper = 3;
+  string schema = 4;
+  repeated Property inputs = 5;
+  repeated Property outputs = 6;
+  repeated PortMetadata ports = 7;
+}
+
+message Property {
+  EventType type = 1;
+  string name = 2;
+  repeated Field fields = 3;
+}
+
+message Field {
+  string key = 1;
+  ValueType type = 2;
+  bool required = 3;
+}
+
+message PortMetadata {
+  EventType type = 1;
+  int32 port = 2;
+  string name = 3;
+  string description = 4;
+}
+
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_SIGNAL = 1;
+  EVENT_TYPE_PAYLOAD = 2;
+  EVENT_TYPE_AUDIO = 3;
+  EVENT_TYPE_VIDEO = 4;
+}
+
+enum ValueType {
+  VALUE_TYPE_UNSPECIFIED = 0;
+  VALUE_TYPE_STRING = 1;
+  VALUE_TYPE_NUMBER = 2;
+  VALUE_TYPE_INTEGER = 3;
+  VALUE_TYPE_BOOLEAN = 4;
+  VALUE_TYPE_OBJECT = 5;
+  VALUE_TYPE_ARRAY = 6;
+}
+
+message RuntimeMessage {
+  string instance_id = 1;
+  string message_id = 2;
+  string correlation_id = 3;
+  RuntimeMessageType type = 4;
+  map<string, string> metadata = 5;
+
+  oneof body {
+    LifecycleEvent lifecycle = 10;
+    SignalEvent signal = 11;
+    PayloadEvent payload = 12;
+    EmitSignal emit_signal = 13;
+    EmitPayload emit_payload = 14;
+    EmitLog emit_log = 15;
+    EventReport report = 16;
+    EventAck ack = 17;
+  }
+}
+
+enum RuntimeMessageType {
+  RUNTIME_MESSAGE_TYPE_UNSPECIFIED = 0;
+  RUNTIME_MESSAGE_TYPE_LIFECYCLE = 1;
+  RUNTIME_MESSAGE_TYPE_SIGNAL = 2;
+  RUNTIME_MESSAGE_TYPE_PAYLOAD = 3;
+  RUNTIME_MESSAGE_TYPE_EMIT_SIGNAL = 4;
+  RUNTIME_MESSAGE_TYPE_EMIT_PAYLOAD = 5;
+  RUNTIME_MESSAGE_TYPE_EMIT_LOG = 6;
+  RUNTIME_MESSAGE_TYPE_ACK = 7;
+  RUNTIME_MESSAGE_TYPE_REPORT = 8;
+}
+
+message LifecycleEvent {
+  LifecycleType type = 1;
+}
+
+enum LifecycleType {
+  LIFECYCLE_TYPE_UNSPECIFIED = 0;
+  LIFECYCLE_TYPE_START = 1;
+  LIFECYCLE_TYPE_READY = 2;
+  LIFECYCLE_TYPE_PAUSE = 3;
+  LIFECYCLE_TYPE_RESUME = 4;
+  LIFECYCLE_TYPE_STOP = 5;
+}
+
+message SignalEvent {
+  string name = 1;
+  bytes properties = 2;
+}
+
+message PayloadEvent {
+  string name = 1;
+  bytes properties = 2;
+}
+
+message EmitSignal {
+  SignalEvent signal = 1;
+  int32 port = 2;
+}
+
+message EmitPayload {
+  PayloadEvent payload = 1;
+  int32 port = 2;
+}
+
+message EmitLog {
+  LogLevel level = 1;
+  string message = 2;
+  map<string, string> fields = 3;
+}
+
+enum LogLevel {
+  LOG_LEVEL_UNSPECIFIED = 0;
+  LOG_LEVEL_DEBUG = 1;
+  LOG_LEVEL_INFO = 2;
+  LOG_LEVEL_WARN = 3;
+  LOG_LEVEL_ERROR = 4;
+}
+
+message EventReport {
+  ReportStatus status = 1;
+  RemoteError error = 2;
+}
+
+enum ReportStatus {
+  REPORT_STATUS_UNSPECIFIED = 0;
+  REPORT_STATUS_OK = 1;
+  REPORT_STATUS_ERROR = 2;
+  REPORT_STATUS_CANCELED = 3;
+}
+
+message RemoteError {
+  string code = 1;
+  string message = 2;
+  string details = 3;
+}
+
+
+message EventAck {
+  int64 timestamp = 1;
+}
