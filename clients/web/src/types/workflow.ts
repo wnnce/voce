@@ -29,6 +29,7 @@ export interface PortMetadata {
 }
 
 export interface PluginInfo {
+  namespace: string;
   name: string;
   description?: string;
   schema?: Record<string, unknown>; // JSON Schema
@@ -40,6 +41,7 @@ export interface PluginInfo {
 export interface NodeConfig {
   id: string;
   name: string;
+  namespace?: string;
   plugin: string;
   config: Record<string, unknown>;
   metadata: Record<string, unknown>;

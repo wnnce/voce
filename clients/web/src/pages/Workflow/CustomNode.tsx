@@ -156,7 +156,7 @@ const CustomNode = ({ data, selected }: NodeProps<WorkflowNodeData>) => {
             )}
           </Box>
           <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', display: 'block', lineHeight: 1 }}>
-            {data.plugin || 'Generic'}
+            {pluginInfo?.namespace ? `${pluginInfo.namespace} / ${data.plugin}` : data.plugin || 'Generic'}
           </Typography>
         </Box>
       </Box>

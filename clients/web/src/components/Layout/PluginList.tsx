@@ -14,6 +14,7 @@ import {
   Button,
   useTheme,
   alpha,
+  Chip,
 } from '@mui/material';
 import { Puzzle, Info, ExternalLink } from 'lucide-react';
 import type { PluginInfo } from '@/types/workflow';
@@ -66,7 +67,7 @@ const PluginList: React.FC = () => {
       </Box>
       <List>
         {plugins.map((plugin) => (
-          <ListItem key={plugin.name} disablePadding>
+          <ListItem key={`${plugin.namespace || 'local'}:${plugin.name}`} disablePadding>
             <ListItemButton 
               onClick={() => setViewingPlugin(plugin)}
               sx={{
@@ -80,11 +81,22 @@ const PluginList: React.FC = () => {
                 <Puzzle size={17} />
               </ListItemIcon>
               <ListItemText
-                primary={plugin.name}
+                primary={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+                    <Typography variant="body2" fontWeight={600} noWrap>
+                      {plugin.name}
+                    </Typography>
+                    <Chip
+                      label={plugin.namespace || 'local'}
+                      size="small"
+                      variant="outlined"
+                      sx={{ height: 18, fontSize: '0.6rem', '& .MuiChip-label': { px: 0.6 } }}
+                    />
+                  </Box>
+                }
                 secondary={plugin.description}
                 primaryTypographyProps={{ 
-                  variant: 'body2', 
-                  fontWeight: 600
+                  component: 'div',
                 }}
                 secondaryTypographyProps={{ 
                   variant: 'caption',
@@ -127,7 +139,9 @@ const PluginList: React.FC = () => {
               </Box>
               <Box>
                 <Typography variant="h6" fontWeight="800">{viewingPlugin.name}</Typography>
-                <Typography variant="caption" color="text.secondary">Plugin Block Details</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Namespace: {viewingPlugin.namespace || 'local'}
+                </Typography>
               </Box>
             </DialogTitle>
             <DialogContent dividers>

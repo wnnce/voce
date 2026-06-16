@@ -5,9 +5,7 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  FormControl,
-  Select,
-  MenuItem,
+  Autocomplete,
   Typography,
   Box,
   Divider,
@@ -19,7 +17,6 @@ import {
   Tabs,
   Tab,
   Alert,
-  type SelectChangeEvent
 } from '@mui/material';
 import Form from '@rjsf/mui';
 import validator from '@rjsf/validator-ajv8';
@@ -40,8 +37,8 @@ import type { PluginInfo, Property, PortMetadata, Field } from '@/types/workflow
 interface NodeConfigModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (data: { name: string; plugin: string; config: Record<string, unknown> }) => void;
-  nodeData?: { name: string; plugin: string; config: Record<string, unknown> } | null;
+  onSave: (data: { name: string; namespace?: string; plugin: string; config: Record<string, unknown> }) => void;
+  nodeData?: { name: string; namespace?: string; plugin: string; config: Record<string, unknown> } | null;
   plugins: PluginInfo[];
   existingNames?: string[];
 }
@@ -62,6 +59,62 @@ const parseJsonConfig = (value: string): { config?: Record<string, unknown>; err
       error: err instanceof Error ? err.message : 'Invalid JSON',
     };
   }
+};
+
+const normalizeNamespace = (namespace?: string) => namespace || 'local';
+const pluginKey = (plugin: PluginInfo) => `${normalizeNamespace(plugin.namespace)}:${plugin.name}`;
+const pluginLabel = (plugin: PluginInfo) => `${normalizeNamespace(plugin.namespace)} / ${plugin.name}`;
+const findPlugin = (
+  plugins: PluginInfo[],
+  pluginName?: string,
+  namespace?: string,
+) =>
+  plugins.find(
+    (plugin) =>
+      plugin.name === pluginName &&
+      normalizeNamespace(plugin.namespace) === normalizeNamespace(namespace),
+  ) || null;
+
+interface DraftState {
+  key: string;
+  selectedPlugin: PluginInfo | null;
+  formData: Record<string, unknown>;
+  name: string;
+  error: string;
+  configMode: ConfigMode;
+  jsonText: string;
+  jsonError: string;
+  customDirty: boolean;
+}
+
+const draftKey = (
+  nodeData: NodeConfigModalProps['nodeData'],
+  plugins: PluginInfo[],
+) =>
+  [
+    nodeData?.name || '',
+    normalizeNamespace(nodeData?.namespace),
+    nodeData?.plugin || '',
+    JSON.stringify(nodeData?.config || {}),
+    plugins.map(pluginKey).join('|'),
+  ].join('\n');
+
+const createDraft = (
+  nodeData: NodeConfigModalProps['nodeData'],
+  plugins: PluginInfo[],
+): DraftState => {
+  const plugin = findPlugin(plugins, nodeData?.plugin, nodeData?.namespace);
+  return {
+    key: draftKey(nodeData, plugins),
+    selectedPlugin: plugin,
+    formData: nodeData?.config || {},
+    name: nodeData?.name || '',
+    error: '',
+    configMode: plugin?.schema ? 'form' : 'custom',
+    jsonText: stringifyConfig(nodeData?.config || {}),
+    jsonError: '',
+    customDirty: false,
+  };
 };
 
 // Help component to render a list of properties
@@ -190,55 +243,66 @@ const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
   plugins,
   existingNames = [],
 }) => {
-  const initialSelectedPlugin = plugins.find((e) => e.name === nodeData?.plugin) || null;
-  const [selectedPlugin, setSelectedPlugin] = useState<PluginInfo | null>(initialSelectedPlugin);
-  const [formData, setFormData] = useState<Record<string, unknown>>(() => nodeData?.config || {});
-  const [configMode, setConfigMode] = useState<ConfigMode>(() => initialSelectedPlugin?.schema ? 'form' : 'custom');
-  const [jsonText, setJsonText] = useState(() => stringifyConfig(nodeData?.config || {}));
-  const [jsonError, setJsonError] = useState('');
-  const [customDirty, setCustomDirty] = useState(false);
-  const [name, setName] = useState(nodeData?.name || '');
-  const [error, setError] = useState('');
+  const [draft, setDraft] = useState<DraftState>(() => createDraft(nodeData, plugins));
+  const currentDraftKey = draftKey(nodeData, plugins);
+  const activeDraft = open && draft.key !== currentDraftKey ? createDraft(nodeData, plugins) : draft;
 
-  const handlePluginChange = (event: SelectChangeEvent) => {
-    const pluginName = event.target.value as string;
-    const plugin = plugins.find((e) => e.name === pluginName);
-    setSelectedPlugin(plugin || null);
-    setFormData({}); // Reset config on plugin change
-    setJsonText(stringifyConfig({}));
-    setJsonError('');
-    setCustomDirty(false);
-    setConfigMode(plugin?.schema ? 'form' : 'custom');
+  if (open && draft.key !== currentDraftKey) {
+    setDraft(activeDraft);
+  }
+
+  const { selectedPlugin, formData, name, error, configMode, jsonText, jsonError, customDirty } = activeDraft;
+
+  const handlePluginChange = (_event: React.SyntheticEvent, plugin: PluginInfo | null) => {
+    setDraft((prev) => ({
+      ...prev,
+      selectedPlugin: plugin || null,
+      formData: {},
+      jsonText: stringifyConfig({}),
+      jsonError: '',
+      customDirty: false,
+      configMode: plugin?.schema ? 'form' : 'custom',
+    }));
   };
 
   const handleConfigModeChange = (_: React.SyntheticEvent, mode: ConfigMode) => {
     if (mode === 'custom' && configMode === 'form' && !customDirty) {
       const nextJsonText = stringifyConfig(formData);
-      setJsonText(nextJsonText);
-      setJsonError(parseJsonConfig(nextJsonText).error);
+      setDraft((prev) => ({
+        ...prev,
+        configMode: mode,
+        jsonText: nextJsonText,
+        jsonError: parseJsonConfig(nextJsonText).error,
+      }));
+    } else {
+      setDraft((prev) => ({ ...prev, configMode: mode }));
     }
-    setConfigMode(mode);
   };
 
   const handleJsonChange = (value: string) => {
-    setJsonText(value);
-    setJsonError(parseJsonConfig(value).error);
-    setCustomDirty(true);
+    setDraft((prev) => ({
+      ...prev,
+      jsonText: value,
+      jsonError: parseJsonConfig(value).error,
+      customDirty: true,
+    }));
   };
 
   const handleNameChange = (val: string) => {
     // Regex: only allow alphanumeric and underscores. Remove spaces/emojis.
     const filtered = val.replace(/[^a-zA-Z0-9_]/g, '');
-    setName(filtered);
-    
+    let nextError = '';
     // Check uniqueness
     if (filtered !== nodeData?.name && existingNames.includes(filtered)) {
-      setError('Node name must be unique in this workflow');
+      nextError = 'Node name must be unique in this workflow';
     } else if (!filtered) {
-      setError('Node name is required');
-    } else {
-      setError('');
+      nextError = 'Node name is required';
     }
+    setDraft((prev) => ({
+      ...prev,
+      name: filtered,
+      error: nextError,
+    }));
   };
 
   const handleSave = () => {
@@ -248,7 +312,7 @@ const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
     if (configMode === 'custom') {
       const result = parseJsonConfig(jsonText);
       if (result.error || !result.config) {
-        setJsonError(result.error);
+        setDraft((prev) => ({ ...prev, jsonError: result.error }));
         return;
       }
       config = result.config;
@@ -256,6 +320,7 @@ const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
 
     onSave({
       name,
+      namespace: selectedPlugin.namespace || '',
       plugin: selectedPlugin.name,
       config,
     });
@@ -291,22 +356,41 @@ const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
                     helperText={error || "Only letters, numbers and underscores allowed"}
                     placeholder="e.g. MyAudioFilter"
                   />
-                  <FormControl fullWidth size="small" required>
-                    <Select 
-                      value={selectedPlugin?.name || ''} 
-                      onChange={handlePluginChange} 
-                      displayEmpty
-                    >
-                      <MenuItem value="" disabled>
-                        <Typography variant="body2" color="text.secondary">Select a plugin...</Typography>
-                      </MenuItem>
-                      {plugins.map((ext) => (
-                        <MenuItem key={ext.name} value={ext.name}>
+                  <Autocomplete
+                    fullWidth
+                    size="small"
+                    options={plugins}
+                    value={selectedPlugin}
+                    onChange={handlePluginChange}
+                    getOptionLabel={pluginLabel}
+                    isOptionEqualToValue={(option, value) => pluginKey(option) === pluginKey(value)}
+                    slotProps={{
+                      listbox: {
+                        sx: { maxHeight: 320, overflow: 'auto' },
+                      },
+                    }}
+                    renderInput={(params) => (
+                      <TextField {...params} required label="Plugin" placeholder="Select a plugin..." />
+                    )}
+                    renderOption={(props, ext) => (
+                      <Box
+                        component="li"
+                        {...props}
+                        key={pluginKey(ext)}
+                        sx={{ display: 'flex', alignItems: 'center', gap: 1 }}
+                      >
+                        <Chip
+                          label={normalizeNamespace(ext.namespace)}
+                          size="small"
+                          variant="outlined"
+                          sx={{ height: 20, fontSize: '0.65rem' }}
+                        />
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
                           {ext.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                        </Typography>
+                      </Box>
+                    )}
+                  />
                 </Stack>
               </Box>
 
@@ -329,7 +413,7 @@ const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
                         schema={selectedPlugin.schema}
                         validator={validator}
                         formData={formData}
-                        onChange={(e) => setFormData(e.formData)}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, formData: e.formData }))}
                         children={<></>}
                       />
                     </Box>
@@ -361,6 +445,15 @@ const NodeConfigModal: React.FC<NodeConfigModalProps> = ({
               {selectedPlugin ? (
                 <Stack spacing={1}>
                   <Box sx={{ mb: 2 }}>
+                    <Typography variant="caption" fontWeight="bold" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                      NAMESPACE
+                    </Typography>
+                    <Chip
+                      label={normalizeNamespace(selectedPlugin.namespace)}
+                      size="small"
+                      variant="outlined"
+                      sx={{ mb: 2, height: 22, fontSize: '0.7rem' }}
+                    />
                     <Typography variant="caption" fontWeight="bold" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
                       DESCRIPTION
                     </Typography>
