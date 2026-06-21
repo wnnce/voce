@@ -5,6 +5,10 @@ server:
   port: 7001
   grpc_port: 7002
   mode: standalone
+  plugin_servers:
+    - url: 127.0.0.1:50051
+      namespace: ""
+      enable: false
 
 logging:
   console: true

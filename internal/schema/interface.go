@@ -2,6 +2,7 @@ package schema
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -150,6 +151,48 @@ func (b *builtinProperties) Unpack(dst any) error {
 		return u.UnpackSchema(b)
 	}
 	return reflectUnpack(b, dst)
+}
+
+// MarshalJSON serializes all properties to a JSON object.
+// Entries are append-only and may contain duplicate keys; this method
+// deduplicates by keeping the last value for each key (matching Get semantics).
+// Values already stored as []byte (from snapshot's sonic.Marshal path) are
+// embedded via sonic.RawMessage to avoid double-encoding.
+func (b *builtinProperties) MarshalJSON() ([]byte, error) {
+	if len(b.entries) == 0 {
+		return []byte("{}"), nil
+	}
+	seen := make(map[string]struct{}, len(b.entries))
+	m := make(map[string]any, len(b.entries))
+	for i := len(b.entries) - 1; i >= 0; i-- {
+		e := b.entries[i]
+		if _, dup := seen[e.key]; dup {
+			continue
+		}
+		seen[e.key] = struct{}{}
+		if bs, ok := e.val.([]byte); ok {
+			m[e.key] = json.RawMessage(bs)
+		} else {
+			m[e.key] = e.val
+		}
+	}
+	return sonic.Marshal(m)
+}
+
+// UnmarshalJSON deserializes a JSON object into properties.
+// Each key-value pair is passed through Set, which applies snapshot semantics
+// to maintain COW safety.
+func (b *builtinProperties) UnmarshalJSON(data []byte) error {
+	var m map[string]any
+	if err := sonic.Unmarshal(data, &m); err != nil {
+		return err
+	}
+	for k, v := range m {
+		if err := b.Set(k, v); err != nil {
+			return fmt.Errorf("unmarshal property %s: %w", k, err)
+		}
+	}
+	return nil
 }
 
 func (b *builtinProperties) snapshot(value any) (any, error) {

@@ -13,6 +13,7 @@ import (
 	"github.com/wnnce/voce/internal/engine"
 	"github.com/wnnce/voce/internal/machine"
 	"github.com/wnnce/voce/internal/metadata"
+	"github.com/wnnce/voce/internal/remote"
 	"github.com/wnnce/voce/pkg/logging"
 )
 
@@ -20,11 +21,12 @@ type appBase struct {
 	container route.AppContainer
 	sm        *engine.SessionManager
 	wm        engine.WorkflowConfigManager
+	rm        *remote.Manager
 	store     *engine.PluginStore
 }
 
-func InitApplication(_ context.Context, cfg config.VoceBootstrap) (route.AppContainer, func(), error) {
-	base, err := initBaseApplication(cfg)
+func InitApplication(ctx context.Context, cfg config.VoceBootstrap) (route.AppContainer, func(), error) {
+	base, err := initBaseApplication(ctx, cfg)
 	if err != nil {
 		return route.AppContainer{}, nil, err
 	}
@@ -36,12 +38,15 @@ func InitApplication(_ context.Context, cfg config.VoceBootstrap) (route.AppCont
 	}
 
 	cleanup := func() {
+		if base.rm != nil {
+			base.rm.Shutdown()
+		}
 		base.sm.Stop()
 	}
 	return base.container, cleanup, nil
 }
 
-func initBaseApplication(cfg config.VoceBootstrap) (*appBase, error) {
+func initBaseApplication(ctx context.Context, cfg config.VoceBootstrap) (*appBase, error) {
 	logger, err := logging.NewLoggerWithContext(
 		cfg.Logging,
 		metadata.ContextTraceKey,
@@ -80,6 +85,11 @@ func initBaseApplication(cfg config.VoceBootstrap) (*appBase, error) {
 		store: store,
 	}
 
+	if hasEnabledPluginServers(cfg.Server.PluginServers) {
+		base.rm = remote.NewManager(ctx, store)
+		base.rm.AddRemotes(ctx, cfg.Server.PluginServers)
+	}
+
 	base.container.Workflow = handler.NewWorkflowHandler(wm)
 	base.container.Plugin = handler.NewPluginHandler(store)
 	base.container.Monitor = handler.NewMonitorHandler(sm)
@@ -96,4 +106,13 @@ func initGatewayMode(base *appBase, cfg config.VoceBootstrap) {
 
 func initStandaloneMode(base *appBase) {
 	base.container.Session = handler.NewStandaloneSessionHandler(base.sm)
+}
+
+func hasEnabledPluginServers(configs []config.PluginServerConfig) bool {
+	for _, cfg := range configs {
+		if cfg.Enable && cfg.URL != "" {
+			return true
+		}
+	}
+	return false
 }

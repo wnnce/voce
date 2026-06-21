@@ -8,6 +8,8 @@ import (
 
 const LocalNamespace = "local"
 
+var localPluginResource = NewPluginResource(LocalNamespace)
+
 type PluginResource struct {
 	namespace string
 	mutex     sync.RWMutex
@@ -19,6 +21,17 @@ func NewPluginResource(namespace string) *PluginResource {
 		namespace: namespace,
 		builders:  make(map[string]PluginBuilder),
 	}
+}
+
+func LocalPluginResource() *PluginResource {
+	return localPluginResource
+}
+
+func RegisterPlugin[T PluginConfig](factory PluginFactory[T], meta PluginMetadata) error {
+	return localPluginResource.RegisterBuilder(&GenericBuilder[T]{
+		meta:    meta,
+		factory: factory,
+	})
 }
 
 func (r *PluginResource) Namespace() string {
