@@ -60,11 +60,30 @@ message DestroyInstanceResponse {}
 message PluginMetadata {
   string name = 1;
   string description = 2;
-  bool multi_wrapper = 3;
   string schema = 4;
   repeated Property inputs = 5;
   repeated Property outputs = 6;
   repeated PortMetadata ports = 7;
+  MultiTrackConfig multi_track = 8;
+}
+
+message MultiTrackConfig {
+  bool enabled = 1;
+  TrackConfig payload = 2;
+}
+
+message TrackConfig {
+  bool enabled = 1;
+  int32 buffer_size = 2;
+  DropStrategy drop_strategy = 3;
+  repeated string interrupt_signals = 4;
+}
+
+enum DropStrategy {
+  DROP_STRATEGY_UNSPECIFIED = 0;
+  DROP_STRATEGY_BLOCK_IF_FULL = 1;
+  DROP_STRATEGY_DROP_NEWEST = 2;
+  DROP_STRATEGY_DROP_OLDEST = 3;
 }
 
 message Property {
