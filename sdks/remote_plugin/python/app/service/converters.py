@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.core import Field, PluginMetadata, PortMetadata, Property
+from app.core import Field, MultiTrackConfig, PluginMetadata, PortMetadata, Property, TrackConfig
 from app.proto import plugin_pb2 as pb
 
 EVENT_TYPES = {
@@ -25,16 +25,41 @@ VALUE_TYPES = {
     "array": "VALUE_TYPE_ARRAY",
 }
 
+DROP_STRATEGIES = {
+    "block_if_full": "DROP_STRATEGY_BLOCK_IF_FULL",
+    "block": "DROP_STRATEGY_BLOCK_IF_FULL",
+    "drop_newest": "DROP_STRATEGY_DROP_NEWEST",
+    "drop_oldest": "DROP_STRATEGY_DROP_OLDEST",
+}
+
 
 def plugin_metadata_to_proto(metadata: PluginMetadata) -> pb.PluginMetadata:
-    return pb.PluginMetadata(
+    result = pb.PluginMetadata(
         name=metadata.name,
         description=metadata.description,
-        multi_wrapper=metadata.multi_wrapper,
         schema=json_string(metadata.schema or {}),
         inputs=[property_to_proto(item) for item in metadata.inputs],
         outputs=[property_to_proto(item) for item in metadata.outputs],
         ports=[port_metadata_to_proto(item) for item in metadata.ports],
+    )
+    if metadata.multi_track is not None:
+        result.multi_track.CopyFrom(multi_track_config_to_proto(metadata.multi_track))
+    return result
+
+
+def multi_track_config_to_proto(config: MultiTrackConfig) -> pb.MultiTrackConfig:
+    result = pb.MultiTrackConfig(enabled=config.enabled)
+    if config.payload is not None:
+        result.payload.CopyFrom(track_config_to_proto(config.payload))
+    return result
+
+
+def track_config_to_proto(config: TrackConfig) -> pb.TrackConfig:
+    return pb.TrackConfig(
+        enabled=config.enabled,
+        buffer_size=config.buffer_size,
+        drop_strategy=drop_strategy_to_proto(config.drop_strategy),
+        interrupt_signals=list(config.interrupt_signals),
     )
 
 
@@ -69,6 +94,10 @@ def event_type_to_proto(value: str) -> str:
 
 def value_type_to_proto(value: str) -> str:
     return VALUE_TYPES.get(value.lower(), "VALUE_TYPE_UNSPECIFIED")
+
+
+def drop_strategy_to_proto(value: str) -> str:
+    return DROP_STRATEGIES.get(value.lower(), "DROP_STRATEGY_UNSPECIFIED")
 
 
 def json_bytes(value: dict[str, Any]) -> bytes:

@@ -7,6 +7,13 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
+class DropStrategy(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    DROP_STRATEGY_UNSPECIFIED: _ClassVar[DropStrategy]
+    DROP_STRATEGY_BLOCK_IF_FULL: _ClassVar[DropStrategy]
+    DROP_STRATEGY_DROP_NEWEST: _ClassVar[DropStrategy]
+    DROP_STRATEGY_DROP_OLDEST: _ClassVar[DropStrategy]
+
 class EventType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     EVENT_TYPE_UNSPECIFIED: _ClassVar[EventType]
@@ -36,6 +43,7 @@ class RuntimeMessageType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     RUNTIME_MESSAGE_TYPE_EMIT_LOG: _ClassVar[RuntimeMessageType]
     RUNTIME_MESSAGE_TYPE_ACK: _ClassVar[RuntimeMessageType]
     RUNTIME_MESSAGE_TYPE_REPORT: _ClassVar[RuntimeMessageType]
+    RUNTIME_MESSAGE_TYPE_CANCEL: _ClassVar[RuntimeMessageType]
 
 class LifecycleType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -60,6 +68,10 @@ class ReportStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     REPORT_STATUS_OK: _ClassVar[ReportStatus]
     REPORT_STATUS_ERROR: _ClassVar[ReportStatus]
     REPORT_STATUS_CANCELED: _ClassVar[ReportStatus]
+DROP_STRATEGY_UNSPECIFIED: DropStrategy
+DROP_STRATEGY_BLOCK_IF_FULL: DropStrategy
+DROP_STRATEGY_DROP_NEWEST: DropStrategy
+DROP_STRATEGY_DROP_OLDEST: DropStrategy
 EVENT_TYPE_UNSPECIFIED: EventType
 EVENT_TYPE_SIGNAL: EventType
 EVENT_TYPE_PAYLOAD: EventType
@@ -81,6 +93,7 @@ RUNTIME_MESSAGE_TYPE_EMIT_PAYLOAD: RuntimeMessageType
 RUNTIME_MESSAGE_TYPE_EMIT_LOG: RuntimeMessageType
 RUNTIME_MESSAGE_TYPE_ACK: RuntimeMessageType
 RUNTIME_MESSAGE_TYPE_REPORT: RuntimeMessageType
+RUNTIME_MESSAGE_TYPE_CANCEL: RuntimeMessageType
 LIFECYCLE_TYPE_UNSPECIFIED: LifecycleType
 LIFECYCLE_TYPE_START: LifecycleType
 LIFECYCLE_TYPE_READY: LifecycleType
@@ -161,22 +174,42 @@ class DestroyInstanceResponse(_message.Message):
     def __init__(self) -> None: ...
 
 class PluginMetadata(_message.Message):
-    __slots__ = ("name", "description", "multi_wrapper", "schema", "inputs", "outputs", "ports")
+    __slots__ = ("name", "description", "schema", "inputs", "outputs", "ports", "multi_track")
     NAME_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
-    MULTI_WRAPPER_FIELD_NUMBER: _ClassVar[int]
     SCHEMA_FIELD_NUMBER: _ClassVar[int]
     INPUTS_FIELD_NUMBER: _ClassVar[int]
     OUTPUTS_FIELD_NUMBER: _ClassVar[int]
     PORTS_FIELD_NUMBER: _ClassVar[int]
+    MULTI_TRACK_FIELD_NUMBER: _ClassVar[int]
     name: str
     description: str
-    multi_wrapper: bool
     schema: str
     inputs: _containers.RepeatedCompositeFieldContainer[Property]
     outputs: _containers.RepeatedCompositeFieldContainer[Property]
     ports: _containers.RepeatedCompositeFieldContainer[PortMetadata]
-    def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., multi_wrapper: _Optional[bool] = ..., schema: _Optional[str] = ..., inputs: _Optional[_Iterable[_Union[Property, _Mapping]]] = ..., outputs: _Optional[_Iterable[_Union[Property, _Mapping]]] = ..., ports: _Optional[_Iterable[_Union[PortMetadata, _Mapping]]] = ...) -> None: ...
+    multi_track: MultiTrackConfig
+    def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., schema: _Optional[str] = ..., inputs: _Optional[_Iterable[_Union[Property, _Mapping]]] = ..., outputs: _Optional[_Iterable[_Union[Property, _Mapping]]] = ..., ports: _Optional[_Iterable[_Union[PortMetadata, _Mapping]]] = ..., multi_track: _Optional[_Union[MultiTrackConfig, _Mapping]] = ...) -> None: ...
+
+class MultiTrackConfig(_message.Message):
+    __slots__ = ("enabled", "payload")
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    enabled: bool
+    payload: TrackConfig
+    def __init__(self, enabled: _Optional[bool] = ..., payload: _Optional[_Union[TrackConfig, _Mapping]] = ...) -> None: ...
+
+class TrackConfig(_message.Message):
+    __slots__ = ("enabled", "buffer_size", "drop_strategy", "interrupt_signals")
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    BUFFER_SIZE_FIELD_NUMBER: _ClassVar[int]
+    DROP_STRATEGY_FIELD_NUMBER: _ClassVar[int]
+    INTERRUPT_SIGNALS_FIELD_NUMBER: _ClassVar[int]
+    enabled: bool
+    buffer_size: int
+    drop_strategy: DropStrategy
+    interrupt_signals: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, enabled: _Optional[bool] = ..., buffer_size: _Optional[int] = ..., drop_strategy: _Optional[_Union[DropStrategy, str]] = ..., interrupt_signals: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class Property(_message.Message):
     __slots__ = ("type", "name", "fields")
@@ -211,7 +244,7 @@ class PortMetadata(_message.Message):
     def __init__(self, type: _Optional[_Union[EventType, str]] = ..., port: _Optional[int] = ..., name: _Optional[str] = ..., description: _Optional[str] = ...) -> None: ...
 
 class RuntimeMessage(_message.Message):
-    __slots__ = ("instance_id", "message_id", "correlation_id", "type", "metadata", "lifecycle", "signal", "payload", "emit_signal", "emit_payload", "emit_log", "report", "ack")
+    __slots__ = ("instance_id", "message_id", "correlation_id", "type", "metadata", "lifecycle", "signal", "payload", "emit_signal", "emit_payload", "emit_log", "report", "ack", "cancel")
     class MetadataEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -232,6 +265,7 @@ class RuntimeMessage(_message.Message):
     EMIT_LOG_FIELD_NUMBER: _ClassVar[int]
     REPORT_FIELD_NUMBER: _ClassVar[int]
     ACK_FIELD_NUMBER: _ClassVar[int]
+    CANCEL_FIELD_NUMBER: _ClassVar[int]
     instance_id: str
     message_id: str
     correlation_id: str
@@ -245,7 +279,8 @@ class RuntimeMessage(_message.Message):
     emit_log: EmitLog
     report: EventReport
     ack: EventAck
-    def __init__(self, instance_id: _Optional[str] = ..., message_id: _Optional[str] = ..., correlation_id: _Optional[str] = ..., type: _Optional[_Union[RuntimeMessageType, str]] = ..., metadata: _Optional[_Mapping[str, str]] = ..., lifecycle: _Optional[_Union[LifecycleEvent, _Mapping]] = ..., signal: _Optional[_Union[SignalEvent, _Mapping]] = ..., payload: _Optional[_Union[PayloadEvent, _Mapping]] = ..., emit_signal: _Optional[_Union[EmitSignal, _Mapping]] = ..., emit_payload: _Optional[_Union[EmitPayload, _Mapping]] = ..., emit_log: _Optional[_Union[EmitLog, _Mapping]] = ..., report: _Optional[_Union[EventReport, _Mapping]] = ..., ack: _Optional[_Union[EventAck, _Mapping]] = ...) -> None: ...
+    cancel: CancelEvent
+    def __init__(self, instance_id: _Optional[str] = ..., message_id: _Optional[str] = ..., correlation_id: _Optional[str] = ..., type: _Optional[_Union[RuntimeMessageType, str]] = ..., metadata: _Optional[_Mapping[str, str]] = ..., lifecycle: _Optional[_Union[LifecycleEvent, _Mapping]] = ..., signal: _Optional[_Union[SignalEvent, _Mapping]] = ..., payload: _Optional[_Union[PayloadEvent, _Mapping]] = ..., emit_signal: _Optional[_Union[EmitSignal, _Mapping]] = ..., emit_payload: _Optional[_Union[EmitPayload, _Mapping]] = ..., emit_log: _Optional[_Union[EmitLog, _Mapping]] = ..., report: _Optional[_Union[EventReport, _Mapping]] = ..., ack: _Optional[_Union[EventAck, _Mapping]] = ..., cancel: _Optional[_Union[CancelEvent, _Mapping]] = ...) -> None: ...
 
 class LifecycleEvent(_message.Message):
     __slots__ = ("type",)
@@ -325,3 +360,7 @@ class EventAck(_message.Message):
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     timestamp: int
     def __init__(self, timestamp: _Optional[int] = ...) -> None: ...
+
+class CancelEvent(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...

@@ -35,6 +35,20 @@ class PortMetadata:
 
 
 @dataclass(slots=True)
+class TrackConfig:
+    enabled: bool = True
+    buffer_size: int = 128
+    drop_strategy: str = "block_if_full"
+    interrupt_signals: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class MultiTrackConfig:
+    enabled: bool = True
+    payload: TrackConfig | None = None
+
+
+@dataclass(slots=True)
 class PluginMetadata:
     name: str
     description: str = ""
@@ -42,7 +56,7 @@ class PluginMetadata:
     inputs: list[Property] = field(default_factory=list)
     outputs: list[Property] = field(default_factory=list)
     ports: list[PortMetadata] = field(default_factory=list)
-    multi_wrapper: bool = False
+    multi_track: MultiTrackConfig | None = None
 
 
 class AsyncPlugin[ConfigT: BaseModel]:
