@@ -3,64 +3,92 @@ package remote
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync/atomic"
 	"time"
-
-	pluginv1 "github.com/wnnce/voce/api/plugin/v1"
 )
 
 type call struct {
-	ctx        context.Context
-	id         string
-	messageTyp pluginv1.RuntimeMessageType
-	pluginName string
-	instanceID string
-	lease      time.Duration
-	done       chan error
-	renewCh    chan struct{}
-	acked      atomic.Bool
-	finished   atomic.Bool
+	ctx            context.Context
+	id             string
+	lease          time.Duration
+	done           chan error
+	renewCh        chan struct{}
+	finished       atomic.Bool
+	cancelCallback func() bool
+	expireCallback func()
+}
+
+// configures one remote call.
+type callOption func(*call)
+
+// sets the callback invoked after the call context is canceled.
+func withCancelCallback(callback func() bool) callOption {
+	return func(c *call) {
+		c.cancelCallback = callback
+	}
+}
+
+// sets the callback invoked after the call lease expires.
+func withExpireCallback(callback func()) callOption {
+	return func(c *call) {
+		c.expireCallback = callback
+	}
 }
 
 func newCall(
 	ctx context.Context,
 	id string,
-	messageTyp pluginv1.RuntimeMessageType,
-	pluginName string,
-	instanceID string,
 	lease time.Duration,
+	options ...callOption,
 ) *call {
-	return &call{
-		ctx:        ctx,
-		id:         id,
-		messageTyp: messageTyp,
-		pluginName: pluginName,
-		instanceID: instanceID,
-		lease:      lease,
-		done:       make(chan error, 1),
-		renewCh:    make(chan struct{}, 1),
+	c := &call{
+		ctx:     ctx,
+		id:      id,
+		lease:   lease,
+		done:    make(chan error, 1),
+		renewCh: make(chan struct{}, 1),
 	}
+	for _, option := range options {
+		option(c)
+	}
+	return c
 }
 
 func (c *call) wait() error {
 	timer := time.NewTimer(c.lease)
 	defer timer.Stop()
-
+	ctxDone := c.ctx.Done()
 	for {
 		select {
 		case err := <-c.done:
 			return err
 		case <-c.renewCh:
-			resetTimer(timer, c.lease)
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(c.lease)
 		case <-timer.C:
 			err := fmt.Errorf("remote call lease expired: %s", c.id)
-			c.finish(err)
+			if !c.finished.CompareAndSwap(false, true) {
+				return nil
+			}
+			if c.expireCallback != nil {
+				c.expireCallback()
+			}
 			return err
-		case <-c.ctx.Done():
-			err := c.ctx.Err()
-			c.finish(err)
-			return err
+		case <-ctxDone:
+			ctxDone = nil
+			// keep waiting
+			if c.cancelCallback != nil && !c.cancelCallback() {
+				continue
+			}
+			if !c.finished.CompareAndSwap(false, true) {
+				return nil
+			}
+			return c.ctx.Err()
 		}
 	}
 }
@@ -68,11 +96,6 @@ func (c *call) wait() error {
 func (c *call) renew() {
 	if c.finished.Load() {
 		return
-	}
-	if c.acked.CompareAndSwap(false, true) {
-		slog.DebugContext(c.ctx, "remote call acknowledged",
-			"plugin", c.pluginName,
-			"type", c.messageTyp)
 	}
 	select {
 	case c.renewCh <- struct{}{}:
@@ -85,14 +108,4 @@ func (c *call) finish(err error) {
 		return
 	}
 	c.done <- err
-}
-
-func resetTimer(timer *time.Timer, d time.Duration) {
-	if !timer.Stop() {
-		select {
-		case <-timer.C:
-		default:
-		}
-	}
-	timer.Reset(d)
 }

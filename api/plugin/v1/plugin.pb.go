@@ -201,6 +201,7 @@ const (
 	RuntimeMessageType_RUNTIME_MESSAGE_TYPE_EMIT_LOG     RuntimeMessageType = 6
 	RuntimeMessageType_RUNTIME_MESSAGE_TYPE_ACK          RuntimeMessageType = 7
 	RuntimeMessageType_RUNTIME_MESSAGE_TYPE_REPORT       RuntimeMessageType = 8
+	RuntimeMessageType_RUNTIME_MESSAGE_TYPE_CANCEL       RuntimeMessageType = 9
 )
 
 // Enum value maps for RuntimeMessageType.
@@ -215,6 +216,7 @@ var (
 		6: "RUNTIME_MESSAGE_TYPE_EMIT_LOG",
 		7: "RUNTIME_MESSAGE_TYPE_ACK",
 		8: "RUNTIME_MESSAGE_TYPE_REPORT",
+		9: "RUNTIME_MESSAGE_TYPE_CANCEL",
 	}
 	RuntimeMessageType_value = map[string]int32{
 		"RUNTIME_MESSAGE_TYPE_UNSPECIFIED":  0,
@@ -226,6 +228,7 @@ var (
 		"RUNTIME_MESSAGE_TYPE_EMIT_LOG":     6,
 		"RUNTIME_MESSAGE_TYPE_ACK":          7,
 		"RUNTIME_MESSAGE_TYPE_REPORT":       8,
+		"RUNTIME_MESSAGE_TYPE_CANCEL":       9,
 	}
 )
 
@@ -1222,6 +1225,7 @@ type RuntimeMessage struct {
 	//	*RuntimeMessage_EmitLog
 	//	*RuntimeMessage_Report
 	//	*RuntimeMessage_Ack
+	//	*RuntimeMessage_Cancel
 	Body          isRuntimeMessage_Body `protobuf_oneof:"body"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1371,6 +1375,15 @@ func (x *RuntimeMessage) GetAck() *EventAck {
 	return nil
 }
 
+func (x *RuntimeMessage) GetCancel() *CancelEvent {
+	if x != nil {
+		if x, ok := x.Body.(*RuntimeMessage_Cancel); ok {
+			return x.Cancel
+		}
+	}
+	return nil
+}
+
 type isRuntimeMessage_Body interface {
 	isRuntimeMessage_Body()
 }
@@ -1407,6 +1420,10 @@ type RuntimeMessage_Ack struct {
 	Ack *EventAck `protobuf:"bytes,17,opt,name=ack,proto3,oneof"`
 }
 
+type RuntimeMessage_Cancel struct {
+	Cancel *CancelEvent `protobuf:"bytes,18,opt,name=cancel,proto3,oneof"`
+}
+
 func (*RuntimeMessage_Lifecycle) isRuntimeMessage_Body() {}
 
 func (*RuntimeMessage_Signal) isRuntimeMessage_Body() {}
@@ -1422,6 +1439,8 @@ func (*RuntimeMessage_EmitLog) isRuntimeMessage_Body() {}
 func (*RuntimeMessage_Report) isRuntimeMessage_Body() {}
 
 func (*RuntimeMessage_Ack) isRuntimeMessage_Body() {}
+
+func (*RuntimeMessage_Cancel) isRuntimeMessage_Body() {}
 
 type LifecycleEvent struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1891,6 +1910,42 @@ func (x *EventAck) GetTimestamp() int64 {
 	return 0
 }
 
+type CancelEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelEvent) Reset() {
+	*x = CancelEvent{}
+	mi := &file_api_plugin_v1_plugin_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelEvent) ProtoMessage() {}
+
+func (x *CancelEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_api_plugin_v1_plugin_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelEvent.ProtoReflect.Descriptor instead.
+func (*CancelEvent) Descriptor() ([]byte, []int) {
+	return file_api_plugin_v1_plugin_proto_rawDescGZIP(), []int{24}
+}
+
 var File_api_plugin_v1_plugin_proto protoreflect.FileDescriptor
 
 const file_api_plugin_v1_plugin_proto_rawDesc = "" +
@@ -1922,7 +1977,7 @@ const file_api_plugin_v1_plugin_proto_rawDesc = "" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reason\"\x19\n" +
-	"\x17DestroyInstanceResponse\"\xbc\x02\n" +
+	"\x17DestroyInstanceResponse\"\xa7\x02\n" +
 	"\x0ePluginMetadata\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x16\n" +
@@ -1931,7 +1986,7 @@ const file_api_plugin_v1_plugin_proto_rawDesc = "" +
 	"\aoutputs\x18\x06 \x03(\v2\x13.plugin.v1.PropertyR\aoutputs\x12-\n" +
 	"\x05ports\x18\a \x03(\v2\x17.plugin.v1.PortMetadataR\x05ports\x12<\n" +
 	"\vmulti_track\x18\b \x01(\v2\x1b.plugin.v1.MultiTrackConfigR\n" +
-	"multiTrackJ\x04\b\x03\x10\x04R\rmulti_wrapper\"^\n" +
+	"multiTrack\"^\n" +
 	"\x10MultiTrackConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x120\n" +
 	"\apayload\x18\x02 \x01(\v2\x16.plugin.v1.TrackConfigR\apayload\"\xb3\x01\n" +
@@ -1953,7 +2008,7 @@ const file_api_plugin_v1_plugin_proto_rawDesc = "" +
 	"\x04type\x18\x01 \x01(\x0e2\x14.plugin.v1.EventTypeR\x04type\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\x05R\x04port\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x12 \n" +
-	"\vdescription\x18\x04 \x01(\tR\vdescription\"\xd9\x05\n" +
+	"\vdescription\x18\x04 \x01(\tR\vdescription\"\x8b\x06\n" +
 	"\x0eRuntimeMessage\x12\x1f\n" +
 	"\vinstance_id\x18\x01 \x01(\tR\n" +
 	"instanceId\x12\x1d\n" +
@@ -1971,7 +2026,8 @@ const file_api_plugin_v1_plugin_proto_rawDesc = "" +
 	"\femit_payload\x18\x0e \x01(\v2\x16.plugin.v1.EmitPayloadH\x00R\vemitPayload\x12/\n" +
 	"\bemit_log\x18\x0f \x01(\v2\x12.plugin.v1.EmitLogH\x00R\aemitLog\x120\n" +
 	"\x06report\x18\x10 \x01(\v2\x16.plugin.v1.EventReportH\x00R\x06report\x12'\n" +
-	"\x03ack\x18\x11 \x01(\v2\x13.plugin.v1.EventAckH\x00R\x03ack\x1a;\n" +
+	"\x03ack\x18\x11 \x01(\v2\x13.plugin.v1.EventAckH\x00R\x03ack\x120\n" +
+	"\x06cancel\x18\x12 \x01(\v2\x16.plugin.v1.CancelEventH\x00R\x06cancel\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x06\n" +
@@ -2010,7 +2066,8 @@ const file_api_plugin_v1_plugin_proto_rawDesc = "" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x18\n" +
 	"\adetails\x18\x03 \x01(\tR\adetails\"(\n" +
 	"\bEventAck\x12\x1c\n" +
-	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp*\x8c\x01\n" +
+	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\"\r\n" +
+	"\vCancelEvent*\x8c\x01\n" +
 	"\fDropStrategy\x12\x1d\n" +
 	"\x19DROP_STRATEGY_UNSPECIFIED\x10\x00\x12\x1f\n" +
 	"\x1bDROP_STRATEGY_BLOCK_IF_FULL\x10\x01\x12\x1d\n" +
@@ -2029,7 +2086,7 @@ const file_api_plugin_v1_plugin_proto_rawDesc = "" +
 	"\x12VALUE_TYPE_INTEGER\x10\x03\x12\x16\n" +
 	"\x12VALUE_TYPE_BOOLEAN\x10\x04\x12\x15\n" +
 	"\x11VALUE_TYPE_OBJECT\x10\x05\x12\x14\n" +
-	"\x10VALUE_TYPE_ARRAY\x10\x06*\xd0\x02\n" +
+	"\x10VALUE_TYPE_ARRAY\x10\x06*\xf1\x02\n" +
 	"\x12RuntimeMessageType\x12$\n" +
 	" RUNTIME_MESSAGE_TYPE_UNSPECIFIED\x10\x00\x12\"\n" +
 	"\x1eRUNTIME_MESSAGE_TYPE_LIFECYCLE\x10\x01\x12\x1f\n" +
@@ -2039,7 +2096,8 @@ const file_api_plugin_v1_plugin_proto_rawDesc = "" +
 	"!RUNTIME_MESSAGE_TYPE_EMIT_PAYLOAD\x10\x05\x12!\n" +
 	"\x1dRUNTIME_MESSAGE_TYPE_EMIT_LOG\x10\x06\x12\x1c\n" +
 	"\x18RUNTIME_MESSAGE_TYPE_ACK\x10\a\x12\x1f\n" +
-	"\x1bRUNTIME_MESSAGE_TYPE_REPORT\x10\b*\xb1\x01\n" +
+	"\x1bRUNTIME_MESSAGE_TYPE_REPORT\x10\b\x12\x1f\n" +
+	"\x1bRUNTIME_MESSAGE_TYPE_CANCEL\x10\t*\xb1\x01\n" +
 	"\rLifecycleType\x12\x1e\n" +
 	"\x1aLIFECYCLE_TYPE_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14LIFECYCLE_TYPE_START\x10\x01\x12\x18\n" +
@@ -2078,7 +2136,7 @@ func file_api_plugin_v1_plugin_proto_rawDescGZIP() []byte {
 }
 
 var file_api_plugin_v1_plugin_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_api_plugin_v1_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_api_plugin_v1_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_api_plugin_v1_plugin_proto_goTypes = []any{
 	(DropStrategy)(0),               // 0: plugin.v1.DropStrategy
 	(EventType)(0),                  // 1: plugin.v1.EventType
@@ -2111,13 +2169,14 @@ var file_api_plugin_v1_plugin_proto_goTypes = []any{
 	(*EventReport)(nil),             // 28: plugin.v1.EventReport
 	(*RemoteError)(nil),             // 29: plugin.v1.RemoteError
 	(*EventAck)(nil),                // 30: plugin.v1.EventAck
-	nil,                             // 31: plugin.v1.CreateInstanceRequest.MetadataEntry
-	nil,                             // 32: plugin.v1.RuntimeMessage.MetadataEntry
-	nil,                             // 33: plugin.v1.EmitLog.FieldsEntry
+	(*CancelEvent)(nil),             // 31: plugin.v1.CancelEvent
+	nil,                             // 32: plugin.v1.CreateInstanceRequest.MetadataEntry
+	nil,                             // 33: plugin.v1.RuntimeMessage.MetadataEntry
+	nil,                             // 34: plugin.v1.EmitLog.FieldsEntry
 }
 var file_api_plugin_v1_plugin_proto_depIdxs = []int32{
 	15, // 0: plugin.v1.ListPluginsResponse.plugins:type_name -> plugin.v1.PluginMetadata
-	31, // 1: plugin.v1.CreateInstanceRequest.metadata:type_name -> plugin.v1.CreateInstanceRequest.MetadataEntry
+	32, // 1: plugin.v1.CreateInstanceRequest.metadata:type_name -> plugin.v1.CreateInstanceRequest.MetadataEntry
 	18, // 2: plugin.v1.PluginMetadata.inputs:type_name -> plugin.v1.Property
 	18, // 3: plugin.v1.PluginMetadata.outputs:type_name -> plugin.v1.Property
 	20, // 4: plugin.v1.PluginMetadata.ports:type_name -> plugin.v1.PortMetadata
@@ -2129,7 +2188,7 @@ var file_api_plugin_v1_plugin_proto_depIdxs = []int32{
 	2,  // 10: plugin.v1.Field.type:type_name -> plugin.v1.ValueType
 	1,  // 11: plugin.v1.PortMetadata.type:type_name -> plugin.v1.EventType
 	3,  // 12: plugin.v1.RuntimeMessage.type:type_name -> plugin.v1.RuntimeMessageType
-	32, // 13: plugin.v1.RuntimeMessage.metadata:type_name -> plugin.v1.RuntimeMessage.MetadataEntry
+	33, // 13: plugin.v1.RuntimeMessage.metadata:type_name -> plugin.v1.RuntimeMessage.MetadataEntry
 	22, // 14: plugin.v1.RuntimeMessage.lifecycle:type_name -> plugin.v1.LifecycleEvent
 	23, // 15: plugin.v1.RuntimeMessage.signal:type_name -> plugin.v1.SignalEvent
 	24, // 16: plugin.v1.RuntimeMessage.payload:type_name -> plugin.v1.PayloadEvent
@@ -2138,28 +2197,29 @@ var file_api_plugin_v1_plugin_proto_depIdxs = []int32{
 	27, // 19: plugin.v1.RuntimeMessage.emit_log:type_name -> plugin.v1.EmitLog
 	28, // 20: plugin.v1.RuntimeMessage.report:type_name -> plugin.v1.EventReport
 	30, // 21: plugin.v1.RuntimeMessage.ack:type_name -> plugin.v1.EventAck
-	4,  // 22: plugin.v1.LifecycleEvent.type:type_name -> plugin.v1.LifecycleType
-	23, // 23: plugin.v1.EmitSignal.signal:type_name -> plugin.v1.SignalEvent
-	24, // 24: plugin.v1.EmitPayload.payload:type_name -> plugin.v1.PayloadEvent
-	5,  // 25: plugin.v1.EmitLog.level:type_name -> plugin.v1.LogLevel
-	33, // 26: plugin.v1.EmitLog.fields:type_name -> plugin.v1.EmitLog.FieldsEntry
-	6,  // 27: plugin.v1.EventReport.status:type_name -> plugin.v1.ReportStatus
-	29, // 28: plugin.v1.EventReport.error:type_name -> plugin.v1.RemoteError
-	7,  // 29: plugin.v1.RemotePluginService.Ping:input_type -> plugin.v1.PingRequest
-	9,  // 30: plugin.v1.RemotePluginService.ListPlugins:input_type -> plugin.v1.ListPluginsRequest
-	11, // 31: plugin.v1.RemotePluginService.CreateInstance:input_type -> plugin.v1.CreateInstanceRequest
-	13, // 32: plugin.v1.RemotePluginService.DestroyInstance:input_type -> plugin.v1.DestroyInstanceRequest
-	21, // 33: plugin.v1.RemotePluginService.RunInstance:input_type -> plugin.v1.RuntimeMessage
-	8,  // 34: plugin.v1.RemotePluginService.Ping:output_type -> plugin.v1.PingResponse
-	10, // 35: plugin.v1.RemotePluginService.ListPlugins:output_type -> plugin.v1.ListPluginsResponse
-	12, // 36: plugin.v1.RemotePluginService.CreateInstance:output_type -> plugin.v1.CreateInstanceResponse
-	14, // 37: plugin.v1.RemotePluginService.DestroyInstance:output_type -> plugin.v1.DestroyInstanceResponse
-	21, // 38: plugin.v1.RemotePluginService.RunInstance:output_type -> plugin.v1.RuntimeMessage
-	34, // [34:39] is the sub-list for method output_type
-	29, // [29:34] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	31, // 22: plugin.v1.RuntimeMessage.cancel:type_name -> plugin.v1.CancelEvent
+	4,  // 23: plugin.v1.LifecycleEvent.type:type_name -> plugin.v1.LifecycleType
+	23, // 24: plugin.v1.EmitSignal.signal:type_name -> plugin.v1.SignalEvent
+	24, // 25: plugin.v1.EmitPayload.payload:type_name -> plugin.v1.PayloadEvent
+	5,  // 26: plugin.v1.EmitLog.level:type_name -> plugin.v1.LogLevel
+	34, // 27: plugin.v1.EmitLog.fields:type_name -> plugin.v1.EmitLog.FieldsEntry
+	6,  // 28: plugin.v1.EventReport.status:type_name -> plugin.v1.ReportStatus
+	29, // 29: plugin.v1.EventReport.error:type_name -> plugin.v1.RemoteError
+	7,  // 30: plugin.v1.RemotePluginService.Ping:input_type -> plugin.v1.PingRequest
+	9,  // 31: plugin.v1.RemotePluginService.ListPlugins:input_type -> plugin.v1.ListPluginsRequest
+	11, // 32: plugin.v1.RemotePluginService.CreateInstance:input_type -> plugin.v1.CreateInstanceRequest
+	13, // 33: plugin.v1.RemotePluginService.DestroyInstance:input_type -> plugin.v1.DestroyInstanceRequest
+	21, // 34: plugin.v1.RemotePluginService.RunInstance:input_type -> plugin.v1.RuntimeMessage
+	8,  // 35: plugin.v1.RemotePluginService.Ping:output_type -> plugin.v1.PingResponse
+	10, // 36: plugin.v1.RemotePluginService.ListPlugins:output_type -> plugin.v1.ListPluginsResponse
+	12, // 37: plugin.v1.RemotePluginService.CreateInstance:output_type -> plugin.v1.CreateInstanceResponse
+	14, // 38: plugin.v1.RemotePluginService.DestroyInstance:output_type -> plugin.v1.DestroyInstanceResponse
+	21, // 39: plugin.v1.RemotePluginService.RunInstance:output_type -> plugin.v1.RuntimeMessage
+	35, // [35:40] is the sub-list for method output_type
+	30, // [30:35] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_api_plugin_v1_plugin_proto_init() }
@@ -2176,6 +2236,7 @@ func file_api_plugin_v1_plugin_proto_init() {
 		(*RuntimeMessage_EmitLog)(nil),
 		(*RuntimeMessage_Report)(nil),
 		(*RuntimeMessage_Ack)(nil),
+		(*RuntimeMessage_Cancel)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -2183,7 +2244,7 @@ func file_api_plugin_v1_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_api_plugin_v1_plugin_proto_rawDesc), len(file_api_plugin_v1_plugin_proto_rawDesc)),
 			NumEnums:      7,
-			NumMessages:   27,
+			NumMessages:   28,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

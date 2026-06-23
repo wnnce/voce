@@ -201,6 +201,7 @@ func TestBuilder_Build(t *testing.T) {
 		defer client.mu.RUnlock()
 		require.Len(t, client.instances, 1)
 		assert.Contains(t, client.instances, instanceID)
+		assert.True(t, client.instances[instanceID].multi)
 	})
 }
 

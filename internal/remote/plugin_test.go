@@ -105,6 +105,18 @@ func startPlugin(t *testing.T, plugin *Plugin, flow engine.Flow, stream *fakeStr
 }
 
 func TestPlugin(t *testing.T) {
+	t.Run("IndexUsesSingleLaneByDefaultAndSplitLaneInMultiMode", func(t *testing.T) {
+		plugin := NewPlugin(nil, "inst-1", engine.PluginMetadata{Name: "test"})
+		assert.Equal(t, 0, plugin.index(pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_SIGNAL))
+		assert.Equal(t, 0, plugin.index(pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_PAYLOAD))
+		assert.Equal(t, 0, plugin.index(pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_LIFECYCLE))
+
+		multiPlugin := NewPlugin(nil, "inst-1", engine.PluginMetadata{Name: "test"}, true)
+		assert.Equal(t, 0, multiPlugin.index(pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_SIGNAL))
+		assert.Equal(t, 1, multiPlugin.index(pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_PAYLOAD))
+		assert.Equal(t, 0, multiPlugin.index(pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_LIFECYCLE))
+	})
+
 	t.Run("OnStartTransitionsToStreaming", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			stream := newFakeStream(context.Background())
@@ -350,6 +362,128 @@ func TestPlugin(t *testing.T) {
 			plugin.OnStop()
 			synctest.Wait()
 		})
+	})
+
+	t.Run("OnPayload_ContextCanceledSendsCancelAndWaitsForCanceledReport", func(t *testing.T) {
+		stream := newFakeStream(context.Background())
+		client := &fakePluginClient{stream: stream}
+		plugin := NewPlugin(client, "inst-1", engine.PluginMetadata{Name: "test"})
+		flow := &engine.MockFlow{}
+
+		startPlugin(t, plugin, flow, stream)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		go func() {
+			p := schema.NewPayload("asr_result")
+			_ = p.Set("text", "hello")
+			plugin.OnPayload(ctx, flow, p.ReadOnly())
+			close(done)
+		}()
+
+		payloadMsg := <-stream.sendCh
+		require.Equal(t, pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_PAYLOAD, payloadMsg.Type)
+		require.NotEmpty(t, payloadMsg.MessageId)
+
+		cancel()
+
+		cancelMsg := <-stream.sendCh
+		require.Equal(t, pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_CANCEL, cancelMsg.Type)
+		assert.Equal(t, payloadMsg.MessageId, cancelMsg.CorrelationId)
+		require.NotNil(t, cancelMsg.GetCancel())
+
+		select {
+		case <-done:
+			t.Fatal("OnPayload returned before canceled report")
+		default:
+		}
+
+		stream.recvCh <- &pluginv1.RuntimeMessage{
+			Type:          pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_REPORT,
+			CorrelationId: payloadMsg.MessageId,
+			Body: &pluginv1.RuntimeMessage_Report{
+				Report: &pluginv1.EventReport{Status: pluginv1.ReportStatus_REPORT_STATUS_CANCELED},
+			},
+		}
+
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("OnPayload did not return after canceled report")
+		}
+		assert.Equal(t, PluginStateStreaming, plugin.State())
+
+		go replyOK(stream)
+		plugin.OnStop()
+	})
+
+	t.Run("MultiModeAllowsPayloadAndSignalInFlight", func(t *testing.T) {
+		stream := newFakeStream(context.Background())
+		client := &fakePluginClient{stream: stream}
+		plugin := NewPlugin(client, "inst-1", engine.PluginMetadata{Name: "test"}, true)
+		flow := &engine.MockFlow{}
+
+		startPlugin(t, plugin, flow, stream)
+
+		payloadDone := make(chan struct{})
+		go func() {
+			p := schema.NewPayload("asr_result")
+			_ = p.Set("text", "hello")
+			plugin.OnPayload(context.Background(), flow, p.ReadOnly())
+			close(payloadDone)
+		}()
+
+		payloadMsg := <-stream.sendCh
+		require.Equal(t, pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_PAYLOAD, payloadMsg.Type)
+		require.NotEmpty(t, payloadMsg.MessageId)
+
+		signalDone := make(chan struct{})
+		go func() {
+			sig := schema.NewSignal("user_speech_start")
+			plugin.OnSignal(context.Background(), flow, sig.ReadOnly())
+			close(signalDone)
+		}()
+
+		signalMsg := <-stream.sendCh
+		require.Equal(t, pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_SIGNAL, signalMsg.Type)
+		require.NotEmpty(t, signalMsg.MessageId)
+
+		stream.recvCh <- &pluginv1.RuntimeMessage{
+			Type:          pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_REPORT,
+			CorrelationId: signalMsg.MessageId,
+			Body: &pluginv1.RuntimeMessage_Report{
+				Report: &pluginv1.EventReport{Status: pluginv1.ReportStatus_REPORT_STATUS_OK},
+			},
+		}
+
+		select {
+		case <-signalDone:
+		case <-time.After(time.Second):
+			t.Fatal("OnSignal did not return after signal report")
+		}
+		select {
+		case <-payloadDone:
+			t.Fatal("OnPayload returned before payload report")
+		default:
+		}
+
+		stream.recvCh <- &pluginv1.RuntimeMessage{
+			Type:          pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_REPORT,
+			CorrelationId: payloadMsg.MessageId,
+			Body: &pluginv1.RuntimeMessage_Report{
+				Report: &pluginv1.EventReport{Status: pluginv1.ReportStatus_REPORT_STATUS_OK},
+			},
+		}
+
+		select {
+		case <-payloadDone:
+		case <-time.After(time.Second):
+			t.Fatal("OnPayload did not return after payload report")
+		}
+		assert.Equal(t, PluginStateStreaming, plugin.State())
+
+		go replyOK(stream)
+		plugin.OnStop()
 	})
 
 	t.Run("HandleEmitSignal", func(t *testing.T) {

@@ -73,12 +73,13 @@ func (b *Builder) Build(data []byte) (engine.Plugin, error) {
 		return nil, err
 	}
 
-	plugin := NewPlugin(b.client.RPC(), instanceID, b.meta)
+	options := convertMultiTrackOptions(b.multiTrack)
+	plugin := NewPlugin(b.client.RPC(), instanceID, b.meta, len(options) > 0)
 	if err := b.client.RegisterInstance(plugin); err != nil {
 		_ = b.client.DestroyInstance(context.Background(), instanceID, "register instance failed")
 		return nil, err
 	}
-	if options := convertMultiTrackOptions(b.multiTrack); len(options) > 0 {
+	if len(options) > 0 {
 		return engine.NewMultiTrackPlugin(plugin, options...), nil
 	}
 	return plugin, nil

@@ -14,10 +14,14 @@ import (
 	pluginv1 "github.com/wnnce/voce/api/plugin/v1"
 	"github.com/wnnce/voce/internal/engine"
 	"github.com/wnnce/voce/internal/schema"
+	"github.com/wnnce/voce/pkg/syncx"
 	"google.golang.org/grpc/metadata"
 )
 
-const defaultCallLease = 30 * time.Second
+const (
+	defaultCallLease         = 30 * time.Second
+	defaultCancelSendTimeout = time.Second
+)
 
 type PluginState int32
 
@@ -34,24 +38,35 @@ const (
 type Plugin struct {
 	engine.BuiltinPlugin
 	client       pluginv1.RemotePluginServiceClient
-	instanceID   string
+	stream       pluginv1.RemotePluginService_RunInstanceClient
 	metadata     engine.PluginMetadata
+	instanceID   string
+	multi        bool
 	flow         engine.Flow
 	state        atomic.Int32
 	createdAt    time.Time
 	lastActiveMS atomic.Int64
+	writeCh      chan *pluginv1.RuntimeMessage
 	cancel       context.CancelFunc
-	stream       pluginv1.RemotePluginService_RunInstanceClient
-	currentCall  atomic.Pointer[call]
+	calls        [2]atomic.Pointer[call]
 }
 
-func NewPlugin(client pluginv1.RemotePluginServiceClient, instanceID string, metadata engine.PluginMetadata) *Plugin {
+func NewPlugin(
+	client pluginv1.RemotePluginServiceClient,
+	instanceID string,
+	metadata engine.PluginMetadata,
+	multi ...bool,
+) *Plugin {
 	now := time.Now()
 	p := &Plugin{
 		client:     client,
 		instanceID: instanceID,
 		metadata:   metadata,
 		createdAt:  now,
+		writeCh:    make(chan *pluginv1.RuntimeMessage, 128),
+	}
+	if len(multi) > 0 {
+		p.multi = multi[0]
 	}
 	p.state.Store(int32(PluginStateCreated))
 	p.lastActiveMS.Store(now.UnixMilli())
@@ -76,10 +91,14 @@ func (p *Plugin) OnStart(ctx context.Context, flow engine.Flow) error {
 	p.stream = stream
 	p.flow = flow
 	p.setState(PluginStateStreaming)
+	slog.InfoContext(ctx, "remote plugin stream started",
+		"plugin", p.metadata.Name,
+		"multi", p.multi)
 
 	go p.readLoop()
+	go p.writeLoop()
 
-	if err := p.doCall(ctx, &pluginv1.RuntimeMessage{
+	if err = p.doCall(ctx, &pluginv1.RuntimeMessage{
 		Type: pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_LIFECYCLE,
 		Body: &pluginv1.RuntimeMessage_Lifecycle{Lifecycle: &pluginv1.LifecycleEvent{
 			Type: pluginv1.LifecycleType_LIFECYCLE_TYPE_START,
@@ -148,6 +167,8 @@ func (p *Plugin) OnStop() {
 		p.cancel()
 	}
 	p.setState(PluginStateStopped)
+	slog.Info("remote plugin stopped",
+		"plugin", p.metadata.Name)
 }
 
 func (p *Plugin) OnSignal(ctx context.Context, flow engine.Flow, signal schema.Signal) {
@@ -187,7 +208,8 @@ func (p *Plugin) callRemoteSchemaEvent(
 			"plugin", p.metadata.Name, "event_type", eventKind, "event", eventName, "error", err)
 		return
 	}
-	if err := p.doCall(ctx, makeMessage(props)); err != nil {
+	message := makeMessage(props)
+	if err = p.doCall(ctx, message, p.withDefaultCancelCallback(message)); err != nil {
 		slog.ErrorContext(ctx, "remote plugin event failed",
 			"plugin", p.metadata.Name, "event_type", eventKind, "event", eventName, "error", err)
 	}
@@ -195,7 +217,11 @@ func (p *Plugin) callRemoteSchemaEvent(
 
 // OnAudio and OnVideo are inherited from engine.BuiltinPlugin (passthrough).
 
-func (p *Plugin) doCall(ctx context.Context, message *pluginv1.RuntimeMessage) error {
+func (p *Plugin) doCall(
+	ctx context.Context,
+	message *pluginv1.RuntimeMessage,
+	options ...callOption,
+) error {
 	if p.State() != PluginStateStreaming {
 		return fmt.Errorf("remote plugin is not streaming: %s state=%d", p.metadata.Name, p.State())
 	}
@@ -203,26 +229,23 @@ func (p *Plugin) doCall(ctx context.Context, message *pluginv1.RuntimeMessage) e
 		message.MessageId = uuid.New().String()
 	}
 	message.InstanceId = p.instanceID
-
-	current := newCall(
-		ctx,
-		message.MessageId,
-		message.GetType(),
-		p.metadata.Name,
-		p.instanceID,
-		defaultCallLease,
-	)
-	if !p.currentCall.CompareAndSwap(nil, current) {
+	current := newCall(ctx, message.MessageId, defaultCallLease, options...)
+	idx := p.index(message.Type)
+	if !p.calls[idx].CompareAndSwap(nil, current) {
+		slog.WarnContext(ctx, "remote call slot busy",
+			"plugin", p.metadata.Name,
+			"slot", idx)
 		return fmt.Errorf("remote call already in progress: %s", p.metadata.Name)
 	}
-	defer p.currentCall.CompareAndSwap(current, nil)
+	defer p.calls[idx].CompareAndSwap(current, nil)
 
-	if err := p.stream.Send(message); err != nil {
+	if err := syncx.SendWithContext(ctx, p.writeCh, message); err != nil {
 		current.finish(err)
-		p.setState(PluginStateFailed)
+		if !errors.Is(err, context.Canceled) {
+			p.setState(PluginStateFailed)
+		}
 		return fmt.Errorf("send remote runtime message %s: %w", message.MessageId, err)
 	}
-
 	if err := current.wait(); err != nil {
 		// Context cancellation (e.g. interruption) is a normal flow, not a fatal error
 		if !errors.Is(err, context.Canceled) {
@@ -233,14 +256,92 @@ func (p *Plugin) doCall(ctx context.Context, message *pluginv1.RuntimeMessage) e
 	return nil
 }
 
+func (p *Plugin) withDefaultCancelCallback(message *pluginv1.RuntimeMessage) callOption {
+	return withCancelCallback(func() bool {
+		cancelMsg := &pluginv1.RuntimeMessage{
+			InstanceId:    p.instanceID,
+			MessageId:     uuid.New().String(),
+			CorrelationId: message.GetMessageId(),
+			Type:          pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_CANCEL,
+			Body:          &pluginv1.RuntimeMessage_Cancel{Cancel: &pluginv1.CancelEvent{}},
+		}
+		ctx := context.Background()
+		if p.stream != nil {
+			ctx = p.stream.Context()
+		}
+		if err := syncx.SendWithTimeout(ctx, p.writeCh, cancelMsg, defaultCancelSendTimeout); err != nil {
+			slog.WarnContext(ctx, "remote plugin send cancel failed",
+				"plugin", p.metadata.Name,
+				"error", err)
+			return true
+		}
+		slog.InfoContext(ctx, "remote plugin cancel sent",
+			"plugin", p.metadata.Name)
+		return false
+	})
+}
+
+func (p *Plugin) index(messageType pluginv1.RuntimeMessageType) int {
+	if !p.multi {
+		return 0
+	}
+	switch messageType {
+	case pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_LIFECYCLE, pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_SIGNAL:
+		return 0
+	case pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_PAYLOAD:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func (p *Plugin) writeLoop() {
+	stream := p.stream
+	ctx := stream.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			slog.DebugContext(ctx, "remote plugin write loop stopped",
+				"plugin", p.metadata.Name)
+			return
+		case msg, ok := <-p.writeCh:
+			if !ok {
+				return
+			}
+			if err := stream.Send(msg); err != nil {
+				slog.ErrorContext(ctx, "remote plugin stream send failed",
+					"plugin", p.metadata.Name,
+					"error", err,
+				)
+				for i := range len(p.calls) {
+					current := p.calls[i].Load()
+					messageId := msg.MessageId
+					if msg.Type == pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_CANCEL {
+						messageId = msg.CorrelationId
+					}
+					if current == nil || current.id != messageId {
+						continue
+					}
+					current.finish(err)
+				}
+			}
+		}
+	}
+}
+
 func (p *Plugin) readLoop() {
 	stream := p.stream
 	p.Touch()
-
 	ctx := stream.Context()
-
-	defer p.finishCurrentCall(fmt.Errorf("remote plugin stream closed: %s", p.metadata.Name))
-
+	defer func() {
+		p.finishCalls(fmt.Errorf("remote plugin stream closed: %s", p.metadata.Name))
+		if p.cancel != nil {
+			p.cancel()
+		}
+		slog.InfoContext(ctx, "remote plugin read loop stopped",
+			"plugin", p.metadata.Name,
+			"state", p.State())
+	}()
 	for {
 		message, err := stream.Recv()
 		if err != nil {
@@ -274,27 +375,42 @@ func (p *Plugin) readLoop() {
 	}
 }
 
-// finishCurrentCall wakes up any blocked doCall when readLoop exits.
-func (p *Plugin) finishCurrentCall(err error) {
-	if current := p.currentCall.Load(); current != nil {
-		current.finish(err)
-	}
-}
-
 func (p *Plugin) handleAck(_ context.Context, message *pluginv1.RuntimeMessage) {
-	current := p.currentCall.Load()
-	if current == nil || message.GetCorrelationId() != current.id {
+	for i := range len(p.calls) {
+		current := p.calls[i].Load()
+		if current == nil || current.id != message.GetCorrelationId() {
+			continue
+		}
+		current.renew()
 		return
 	}
-	current.renew()
 }
 
-func (p *Plugin) handleReport(_ context.Context, message *pluginv1.RuntimeMessage) {
-	current := p.currentCall.Load()
-	if current == nil || message.GetCorrelationId() != current.id {
+func (p *Plugin) handleReport(ctx context.Context, message *pluginv1.RuntimeMessage) {
+	for i := range len(p.calls) {
+		current := p.calls[i].Load()
+		if current == nil || current.id != message.GetCorrelationId() {
+			continue
+		}
+		slog.DebugContext(ctx, "remote call report received",
+			"plugin", p.metadata.Name,
+			"status", message.GetReport().GetStatus(),
+			"slot", i)
+		current.finish(reportError(message.GetReport()))
 		return
 	}
-	current.finish(reportError(message.GetReport()))
+	slog.WarnContext(ctx, "remote call report has no matching call",
+		"plugin", p.metadata.Name,
+		"status", message.GetReport().GetStatus())
+}
+
+func (p *Plugin) finishCalls(err error) {
+	for i := range len(p.calls) {
+		current := p.calls[i].Load()
+		if current != nil {
+			current.finish(err)
+		}
+	}
 }
 
 func (p *Plugin) handleEmitSignal(ctx context.Context, message *pluginv1.RuntimeMessage) {
@@ -385,11 +501,7 @@ func reportError(report *pluginv1.EventReport) error {
 	case pluginv1.ReportStatus_REPORT_STATUS_OK:
 		return nil
 	case pluginv1.ReportStatus_REPORT_STATUS_CANCELED:
-		err := report.GetError()
-		return fmt.Errorf("remote call canceled: code=%s message=%s details=%s",
-			err.GetCode(),
-			err.GetMessage(),
-			err.GetDetails())
+		return nil
 	case pluginv1.ReportStatus_REPORT_STATUS_ERROR:
 		err := report.GetError()
 		return fmt.Errorf("remote call failed: code=%s message=%s details=%s",
