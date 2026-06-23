@@ -139,6 +139,7 @@ message RuntimeMessage {
     EmitLog emit_log = 15;
     EventReport report = 16;
     EventAck ack = 17;
+    CancelEvent cancel = 18;
   }
 }
 
@@ -152,6 +153,7 @@ enum RuntimeMessageType {
   RUNTIME_MESSAGE_TYPE_EMIT_LOG = 6;
   RUNTIME_MESSAGE_TYPE_ACK = 7;
   RUNTIME_MESSAGE_TYPE_REPORT = 8;
+  RUNTIME_MESSAGE_TYPE_CANCEL = 9;
 }
 
 message LifecycleEvent {
@@ -223,3 +225,5 @@ message RemoteError {
 message EventAck {
   int64 timestamp = 1;
 }
+
+message CancelEvent {}
