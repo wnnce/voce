@@ -4,9 +4,9 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, ValidationError
 
-from app.schema import Payload, Signal
-from app.schema.payload import PAYLOAD_ASR_RESULT
-from app.schema.signal import SIGNAL_INTERRUPTER
+from voce.schema import Payload, Signal
+from voce.schema.payload import PAYLOAD_ASR_RESULT
+from voce.schema.signal import SIGNAL_INTERRUPTER
 
 
 @dataclass(slots=True)

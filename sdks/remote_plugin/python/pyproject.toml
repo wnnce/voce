@@ -1,5 +1,5 @@
 [project]
-name = "voce-remote-plugin"
+name = "voce"
 version = "0.1.0"
 description = "Python SDK for Voce remote plugins"
 readme = "README.md"
@@ -19,15 +19,13 @@ dev = [
     "ruff>=0.15.17",
 ]
 
-[project.scripts]
-voce-remote-plugin = "app.server:main"
 
 [build-system]
 requires = ["uv_build>=0.11.21,<0.12.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = "app"
+module-name = "voce"
 module-root = ""
 
 [tool.black]
@@ -35,19 +33,19 @@ line-length = 100
 target-version = ["py314"]
 extend-exclude = '''
 (
-  ^/app/proto/.*_pb2.*\.pyi?$
+  ^/voce/proto/.*_pb2.*\.pyi?$
 )
 '''
 
 [tool.ruff]
 line-length = 100
 target-version = "py314"
-extend-exclude = ["app/proto/*_pb2*.py*"]
+extend-exclude = ["voce/proto/*_pb2*.py*"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-testpaths = ["tests", "app/plugins"]
+testpaths = ["tests", "voce/plugins"]
 pythonpath = ["."]

@@ -10,7 +10,7 @@ def main() -> None:
     sdk_root = Path(__file__).resolve().parents[1]
     proto_dir = root / "api" / "plugin" / "v1"
     proto = proto_dir / "plugin.proto"
-    out = sdk_root / "app" / "proto"
+    out = sdk_root / "voce" / "proto"
     out.mkdir(parents=True, exist_ok=True)
     (out / "__init__.py").touch()
 
@@ -32,7 +32,7 @@ def main() -> None:
         grpc_file.write_text(
             grpc_file.read_text().replace(
                 "import plugin_pb2 as plugin__pb2",
-                "from app.proto import plugin_pb2 as plugin__pb2",
+                "from voce.proto import plugin_pb2 as plugin__pb2",
             )
         )
 

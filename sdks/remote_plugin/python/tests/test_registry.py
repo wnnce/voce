@@ -1,8 +1,14 @@
 from pydantic import BaseModel
 
-from app.core import AsyncPlugin, MultiTrackConfig, PluginMetadata, PluginRegistry, TrackConfig
-from app.proto import plugin_pb2 as pb
-from app.service.converters import plugin_metadata_to_proto
+from voce.core import (
+    AsyncPlugin,
+    MultiTrackConfig,
+    PluginMetadata,
+    PluginRegistry,
+    TrackConfig,
+)
+from voce.proto import plugin_pb2 as pb
+from voce.service.converters import plugin_metadata_to_proto
 
 
 class EchoConfig(BaseModel):

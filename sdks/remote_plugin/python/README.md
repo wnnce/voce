@@ -35,27 +35,21 @@ uv run ruff check .
 uv run pytest
 ```
 
-Generated protobuf files under `app/proto/` are excluded from Black and Ruff.
+Generated protobuf files under `voce/proto/` are excluded from Black and Ruff.
 
-## Run Server
-
-```bash
-uv run python -m app.server --host 127.0.0.1 --port 50051
-```
-
-or use the project script:
+## Run Example
 
 ```bash
-uv run voce-remote-plugin --host 127.0.0.1 --port 50051
+cd ../examples/python
+uv run python main.py
 ```
 
 ## Package Layout
 
 ```text
-app/
-  server.py    # asyncio gRPC server entrypoint
+voce/
+  app.py      # SDK App lifecycle
   proto/      # Generated protobuf modules and protocol imports
   core/       # Plugin base class, registry, metadata, and flow helper
-  plugins/    # User plugin implementations
-  service/    # gRPC service handlers and server entrypoint
+  service/    # gRPC service handlers
 ```
