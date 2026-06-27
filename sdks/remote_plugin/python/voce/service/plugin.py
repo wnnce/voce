@@ -100,6 +100,7 @@ class RemotePluginServiceHandler(plugin_grpc.RemotePluginServiceServicer):
             plugin, log_handler = self.plugin_instances.get_instance_with_handler(instance_id)
         except KeyError as exc:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+            raise RuntimeError("unreachable")
 
         outgoing_messages: asyncio.Queue[plugin_proto.RuntimeMessage | None] = asyncio.Queue()
 
@@ -142,7 +143,8 @@ class RemotePluginServiceHandler(plugin_grpc.RemotePluginServiceServicer):
             log_task.cancel()
             await asyncio.gather(process_stream_task, log_task, return_exceptions=True)
 
-    def _create_log_message_builder(self, instance_id: str):
+    @staticmethod
+    def _create_log_message_builder(instance_id: str):
         import uuid
 
         def make_msg(data: LogMessage) -> plugin_proto.RuntimeMessage:
