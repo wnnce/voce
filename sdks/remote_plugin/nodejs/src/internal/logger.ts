@@ -1,6 +1,6 @@
-import type { AsyncQueue } from '../utils/async-queue.js'
-import type { RuntimeMessage } from '../proto/plugin.js'
-import { LogLevel, RuntimeMessageType } from '../proto/plugin.js'
+import type { Channel } from '@/internal/channel.js'
+import type { RuntimeMessage } from '@/proto/plugin.js'
+import { LogLevel, RuntimeMessageType } from '@/proto/plugin.js'
 
 // ---------------------------------------------------------------------------
 // Log level mapping
@@ -13,7 +13,7 @@ const LOG_LEVEL_MAP: Record<string, LogLevel> = {
   error: LogLevel.LOG_LEVEL_ERROR,
 }
 
-export function mapLogLevel(level: string): LogLevel {
+export const mapLogLevel = (level: string): LogLevel => {
   return LOG_LEVEL_MAP[level.toLowerCase()] ?? LogLevel.LOG_LEVEL_UNSPECIFIED
 }
 
@@ -70,7 +70,7 @@ export class RemoteLogHandler {
    * Stops when an AbortSignal is triggered.
    */
   async readLoop(
-    output: AsyncQueue<RuntimeMessage>,
+    output: Channel<RuntimeMessage>,
     makeMsg: (data: LogMessage) => RuntimeMessage,
     signal: AbortSignal,
   ): Promise<void> {
@@ -123,7 +123,7 @@ export class RemoteLogHandler {
 /**
  * Creates a PluginLogger that forwards logs to a RemoteLogHandler.
  */
-export function createPluginLogger(handler: RemoteLogHandler, minLevel: LogLevel = LogLevel.LOG_LEVEL_INFO) {
+export const createPluginLogger = (handler: RemoteLogHandler, minLevel: LogLevel = LogLevel.LOG_LEVEL_INFO) => {
   const shouldLog = (level: LogLevel) => level >= minLevel
 
   return {
@@ -145,7 +145,7 @@ export function createPluginLogger(handler: RemoteLogHandler, minLevel: LogLevel
 /**
  * Build a RuntimeMessage factory for log messages.
  */
-export function createLogMessageBuilder(instanceId: string) {
+export const createLogMessageBuilder = (instanceId: string) => {
   return (data: LogMessage): RuntimeMessage => ({
     instanceId,
     messageId: crypto.randomUUID().replace(/-/g, ''),

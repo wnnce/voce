@@ -5,7 +5,7 @@
  * A `null` value signals the queue is closed; subsequent `get()` calls
  * will return `null` immediately once all buffered items are drained.
  */
-export class AsyncQueue<T> {
+export class Channel<T> {
   private readonly buffer: (T | null)[] = []
   private readonly maxSize: number
   private closed = false

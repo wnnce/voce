@@ -1,21 +1,28 @@
 // App & Config
-export { App, resolveConfig, type Config } from './app.js'
+export { App, resolveConfig, type Config } from '@/app.js'
 
-// Core
-export { AsyncPlugin, type PluginMetadata, type PluginLogger } from './core/plugin.js'
-export type { Flow } from './core/flow.js'
+// Core Plugin API
 export {
-  plugin,
-  registerPlugin,
+  type PluginMetadata,
+  type PluginLogger,
+  type PluginContext,
+  type PluginHandlers,
+  type PluginOptions,
+  type PluginDefinition,
+  definePlugin,
+  type Flow,
   pluginRegistry,
   PluginRegistry,
-  type PluginOptions,
-} from './core/registry.js'
-export { MockFlow, PluginTester } from './core/tester.js'
+} from '@/plugin.js'
 
-// Schema
-export { Signal, Payload, Properties } from './schema/index.js'
+// Testing Utilities
+export { MockFlow, PluginTester } from '@/testing.js'
+
+// Schema & Types
+export { decodeProperties, encodeProperties } from '@/types.js'
 export {
+  type Signal,
+  createSignal,
   SIGNAL_INTERRUPTER,
   SIGNAL_AGENT_SPEECH_START,
   SIGNAL_AGENT_SPEECH_END,
@@ -23,10 +30,14 @@ export {
   SIGNAL_USER_SPEECH_END,
   SIGNAL_VAD_USER_SPEECH_START,
   SIGNAL_VAD_USER_SPEECH_END,
+} from '@/types.js'
+export {
+  type Payload,
+  createPayload,
   PAYLOAD_ASR_RESULT,
   PAYLOAD_CAPTION,
   PAYLOAD_LLM_CHUNK,
-} from './schema/index.js'
+} from '@/types.js'
 
 // Re-export metadata sub-types for plugin authors
 export type {
@@ -35,4 +46,4 @@ export type {
   PortMetadata,
   TrackConfig,
   MultiTrackConfig,
-} from './core/plugin.js'
+} from '@/plugin.js'

@@ -15,13 +15,13 @@ import {
   type DestroyInstanceResponse,
   type RuntimeMessage,
   type RemotePluginServiceServer,
-} from '../proto/plugin.js'
-import { pluginMetadataToProto } from './converters.js'
-import { PluginInstanceService } from './instances.js'
-import { PluginSession } from './session.js'
-import { AsyncQueue } from '../utils/async-queue.js'
-import { createLogMessageBuilder } from '../core/logger.js'
-import type { Config } from '../app.js'
+} from '@/proto/plugin.js'
+import { pluginMetadataToProto } from '@/internal/converters.js'
+import { PluginInstanceService } from '@/internal/instances.js'
+import { PluginSession } from '@/internal/session.js'
+import { Channel } from '@/internal/channel.js'
+import { createLogMessageBuilder } from '@/internal/logger.js'
+import type { Config } from '@/app.js'
 
 // ---------------------------------------------------------------------------
 // RemotePluginServiceHandler
@@ -33,10 +33,10 @@ import type { Config } from '../app.js'
  * Handles all RPC methods: Ping, ListPlugins, CreateInstance,
  * DestroyInstance, and the bidirectional RunInstance stream.
  */
-export function createServiceHandler(
+export const createServiceHandler = (
   pluginInstances: PluginInstanceService,
   config: Config,
-): RemotePluginServiceServer {
+): RemotePluginServiceServer => {
   const serverId = config.serverId
   const version = config.version
 
@@ -126,9 +126,9 @@ export function createServiceHandler(
       return
     }
 
-    let plugin, logHandler
+    let handlers, logHandler
     try {
-      ;[plugin, logHandler] = pluginInstances.getInstanceWithHandler(instanceId)
+      ;[handlers, logHandler] = pluginInstances.getInstanceWithHandler(instanceId)
     } catch (err) {
       call.destroy(
         new Error(err instanceof Error ? err.message : String(err)),
@@ -136,7 +136,7 @@ export function createServiceHandler(
       return
     }
 
-    const outgoingMessages = new AsyncQueue<RuntimeMessage>()
+    const outgoingMessages = new Channel<RuntimeMessage>()
     const ac = new AbortController()
 
     // Start log forwarding
@@ -144,7 +144,7 @@ export function createServiceHandler(
     const logPromise = logHandler.readLoop(outgoingMessages, logMsgBuilder, ac.signal)
 
     // Create session
-    const session = new PluginSession(instanceId, plugin, outgoingMessages, {
+    const session = new PluginSession(instanceId, handlers, outgoingMessages, {
       ackIntervalSec: config.ackIntervalSec,
     })
 

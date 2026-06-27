@@ -5,7 +5,7 @@ import type {
   PortMetadata as SdkPortMetadata,
   MultiTrackConfig as SdkMultiTrackConfig,
   TrackConfig as SdkTrackConfig,
-} from '../core/plugin.js'
+} from '@/plugin.js'
 import {
   DropStrategy,
   EventType,
@@ -16,7 +16,7 @@ import {
   type PortMetadata as ProtoPortMetadata,
   type MultiTrackConfig as ProtoMultiTrackConfig,
   type TrackConfig as ProtoTrackConfig,
-} from '../proto/plugin.js'
+} from '@/proto/plugin.js'
 
 // ---------------------------------------------------------------------------
 // Event type mapping
@@ -72,7 +72,7 @@ function dropStrategyToProto(value: string): DropStrategy {
 // Converters
 // ---------------------------------------------------------------------------
 
-export function pluginMetadataToProto(meta: SdkPluginMetadata): ProtoPluginMetadata {
+export const pluginMetadataToProto = (meta: SdkPluginMetadata): ProtoPluginMetadata => {
   return {
     name: meta.name,
     description: meta.description ?? '',

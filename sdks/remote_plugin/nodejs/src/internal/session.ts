@@ -1,15 +1,13 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import type { Flow } from '../core/flow.js'
-import type { AsyncPlugin } from '../core/plugin.js'
-import { Signal } from '../schema/signal.js'
-import { Payload } from '../schema/payload.js'
-import { AsyncQueue } from '../utils/async-queue.js'
+import type { Flow, PluginHandlers } from '@/plugin.js'
+import { createSignal, type Signal, createPayload, type Payload, encodeProperties } from '@/types.js'
+import { Channel } from '@/internal/channel.js'
 import {
   LifecycleType,
   ReportStatus,
   RuntimeMessageType,
   type RuntimeMessage,
-} from '../proto/plugin.js'
+} from '@/proto/plugin.js'
 
 // ---------------------------------------------------------------------------
 // Correlation ID context (AsyncLocalStorage)
@@ -17,7 +15,7 @@ import {
 
 const correlationIdStorage = new AsyncLocalStorage<string>()
 
-export function getCurrentCorrelationId(): string {
+export const getCurrentCorrelationId = (): string => {
   return correlationIdStorage.getStore() ?? ''
 }
 
@@ -33,21 +31,21 @@ export function getCurrentCorrelationId(): string {
  */
 export class PluginSession implements Flow {
   readonly instanceId: string
-  readonly outgoingMessages: AsyncQueue<RuntimeMessage>
+  readonly outgoingMessages: Channel<RuntimeMessage>
 
-  private readonly plugin: AsyncPlugin<unknown>
+  private readonly handlers: PluginHandlers
   private readonly ackIntervalMs: number
   private closed = false
   private readonly runningTasks = new Map<string, AbortController>()
 
   constructor(
     instanceId: string,
-    plugin: AsyncPlugin<unknown>,
-    outgoingMessages: AsyncQueue<RuntimeMessage>,
+    handlers: PluginHandlers,
+    outgoingMessages: Channel<RuntimeMessage>,
     options: { ackIntervalSec: number },
   ) {
     this.instanceId = instanceId
-    this.plugin = plugin
+    this.handlers = handlers
     this.outgoingMessages = outgoingMessages
     this.ackIntervalMs = options.ackIntervalSec * 1000
   }
@@ -61,7 +59,7 @@ export class PluginSession implements Flow {
       emitPayload: {
         payload: {
           name: payload.name,
-          properties: payload.toJsonBytes(),
+          properties: encodeProperties(payload.properties),
         },
         port: options?.port ?? 0,
       },
@@ -76,7 +74,7 @@ export class PluginSession implements Flow {
       emitSignal: {
         signal: {
           name: signal.name,
-          properties: signal.toJsonBytes(),
+          properties: encodeProperties(signal.properties),
         },
         port: options?.port ?? 0,
       },
@@ -88,8 +86,8 @@ export class PluginSession implements Flow {
 
   /**
    * Reads incoming RuntimeMessages from the gRPC stream and dispatches
-   * them to the plugin. Each message is handled in its own "task" (Promise)
-   * tracked by correlation_id, allowing cancel propagation.
+   * them to the plugin handlers. Each message is handled in its own "task"
+   * (Promise) tracked by correlation_id, allowing cancel propagation.
    */
   async processStream(messages: AsyncIterable<RuntimeMessage>): Promise<void> {
     try {
@@ -205,18 +203,22 @@ export class PluginSession implements Flow {
       case 'lifecycle':
         await this.dispatchLifecycle(body.lifecycle.type)
         break
-      case 'signal':
-        await this.plugin.onSignal(
-          this,
-          Signal.fromJsonBytes(body.signal.name, body.signal.properties),
-        )
+      case 'signal': {
+        const parsedProperties = body.signal.properties.length > 0 
+          ? JSON.parse(Buffer.from(body.signal.properties).toString('utf-8'))
+          : {}
+        const sig = createSignal(body.signal.name, parsedProperties)
+        await this.handlers.onSignal?.(sig, this)
         break
-      case 'payload':
-        await this.plugin.onPayload(
-          this,
-          Payload.fromJsonBytes(body.payload.name, body.payload.properties),
-        )
+      }
+      case 'payload': {
+        const parsedProperties = body.payload.properties.length > 0
+          ? JSON.parse(Buffer.from(body.payload.properties).toString('utf-8'))
+          : {}
+        const pay = createPayload(body.payload.name, parsedProperties)
+        await this.handlers.onPayload?.(pay, this)
         break
+      }
       default:
         throw new Error(`unsupported runtime message body: ${(body as { $case: string }).$case}`)
     }
@@ -225,19 +227,19 @@ export class PluginSession implements Flow {
   private async dispatchLifecycle(type: LifecycleType): Promise<void> {
     switch (type) {
       case LifecycleType.LIFECYCLE_TYPE_START:
-        await this.plugin.onStart(this)
+        await this.handlers.onStart?.(this)
         break
       case LifecycleType.LIFECYCLE_TYPE_READY:
-        await this.plugin.onReady(this)
+        await this.handlers.onReady?.(this)
         break
       case LifecycleType.LIFECYCLE_TYPE_PAUSE:
-        await this.plugin.onPause()
+        await this.handlers.onPause?.()
         break
       case LifecycleType.LIFECYCLE_TYPE_RESUME:
-        await this.plugin.onResume(this)
+        await this.handlers.onResume?.(this)
         break
       case LifecycleType.LIFECYCLE_TYPE_STOP:
-        await this.plugin.onStop()
+        await this.handlers.onStop?.()
         break
       default:
         throw new Error(`unsupported lifecycle type: ${type}`)

@@ -1,8 +1,8 @@
 import * as grpc from '@grpc/grpc-js'
-import { pluginRegistry } from './core/registry.js'
-import { PluginInstanceService } from './service/instances.js'
-import { createServiceHandler } from './service/handler.js'
-import { RemotePluginServiceService } from './proto/plugin.js'
+import { pluginRegistry } from '@/plugin.js'
+import { PluginInstanceService } from '@/internal/instances.js'
+import { createServiceHandler } from '@/internal/handler.js'
+import { RemotePluginServiceService } from '@/proto/plugin.js'
 
 // ---------------------------------------------------------------------------
 // Config
@@ -35,7 +35,7 @@ const DEFAULT_CONFIG: Config = {
 }
 
 /** Merge user-supplied partial config with defaults. */
-export function resolveConfig(partial?: Partial<Config>): Config {
+export const resolveConfig = (partial?: Partial<Config>): Config => {
   return { ...DEFAULT_CONFIG, ...partial }
 }
 

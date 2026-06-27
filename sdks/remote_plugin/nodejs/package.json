@@ -16,7 +16,7 @@
     "src"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -40,6 +40,7 @@
     "eslint": "^9.29.0",
     "prettier": "^3.5.3",
     "ts-proto": "^2.11.8",
+    "tsc-alias": "^1.8.10",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.37.0",
     "vitest": "^3.2.3"

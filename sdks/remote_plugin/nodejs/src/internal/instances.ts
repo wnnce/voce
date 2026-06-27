@@ -1,16 +1,16 @@
-import type { AsyncPlugin } from '../core/plugin.js'
-import type { PluginRegistry } from '../core/registry.js'
-import { LogLevel } from '../proto/plugin.js'
-import { RemoteLogHandler, createPluginLogger } from '../core/logger.js'
-import type { PluginSession } from './session.js'
-import type { Config } from '../app.js'
+import type { PluginRegistry } from '@/plugin.js'
+import { LogLevel } from '@/proto/plugin.js'
+import { RemoteLogHandler, createPluginLogger } from '@/internal/logger.js'
+import type { PluginSession } from '@/internal/session.js'
+import type { Config } from '@/app.js'
+import type { PluginHandlers } from '@/plugin.js'
 
 // ---------------------------------------------------------------------------
 // PluginInstance
 // ---------------------------------------------------------------------------
 
 interface PluginInstance {
-  plugin: AsyncPlugin<unknown>
+  handlers: PluginHandlers
   logHandler: RemoteLogHandler
   session: PluginSession | null
 }
@@ -33,19 +33,24 @@ export class PluginInstanceService {
     this.config = config
   }
 
-  createInstance(instanceId: string, pluginName: string, configBytes: Buffer | Uint8Array): void {
+  async createInstance(instanceId: string, pluginName: string, configBytes: Buffer | Uint8Array): Promise<void> {
     if (!instanceId) throw new Error('instance_id is required')
     if (this.instances.has(instanceId)) {
       throw new Error(`plugin instance already exists: ${instanceId}`)
     }
 
-    const plugin = this.registry.create(pluginName, configBytes)
-
     const logHandler = new RemoteLogHandler(this.config.logQueueMaxSize)
     const logLevel = mapLogLevelConfig(this.config.logLevel)
-    plugin.logger = createPluginLogger(logHandler, logLevel)
+    const logger = createPluginLogger(logHandler, logLevel)
 
-    this.instances.set(instanceId, { plugin, logHandler, session: null })
+    // Execute setup() to get the handlers
+    const handlers = await this.registry.createInstance(
+      pluginName,
+      { instanceId, logger },
+      configBytes
+    )
+
+    this.instances.set(instanceId, { handlers, logHandler, session: null })
   }
 
   async destroyInstance(instanceId: string): Promise<void> {
@@ -62,18 +67,18 @@ export class PluginInstanceService {
     }
   }
 
-  getInstance(instanceId: string): AsyncPlugin<unknown> {
+  getHandlers(instanceId: string): PluginHandlers {
     const instance = this.instances.get(instanceId)
     if (!instance) throw new Error(`plugin instance not found: ${instanceId}`)
-    return instance.plugin
+    return instance.handlers
   }
 
   getInstanceWithHandler(
     instanceId: string,
-  ): [AsyncPlugin<unknown>, RemoteLogHandler] {
+  ): [PluginHandlers, RemoteLogHandler] {
     const instance = this.instances.get(instanceId)
     if (!instance) throw new Error(`plugin instance not found: ${instanceId}`)
-    return [instance.plugin, instance.logHandler]
+    return [instance.handlers, instance.logHandler]
   }
 
   attachSession(instanceId: string, session: PluginSession): void {
