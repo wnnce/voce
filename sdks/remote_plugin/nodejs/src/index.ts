@@ -18,6 +18,9 @@ export {
 // Testing Utilities
 export { MockFlow, PluginTester } from '@/testing.js'
 
+// Context & Execution
+export { getAbortSignal, getCurrentCorrelationId } from '@/internal/session.js'
+
 // Schema & Types
 export { decodeProperties, encodeProperties } from '@/types.js'
 export {

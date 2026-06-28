@@ -66,29 +66,31 @@ export const createServiceHandler = (
     call,
     callback,
   ) => {
-    try {
-      pluginInstances.createInstance(
+    pluginInstances
+      .createInstance(
         call.request.instanceId,
         call.request.pluginName,
         call.request.config,
       )
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      if (message.includes('not found')) {
+      .then(() => {
+        console.info(
+          `remote plugin instance created instance_id=${call.request.instanceId} plugin=${call.request.pluginName}`,
+        )
+        callback(null, { instanceId: call.request.instanceId })
+      })
+      .catch((err) => {
+        const message = err instanceof Error ? err.message : String(err)
+        if (message.includes('not found')) {
+          return callback({
+            code: grpc.status.NOT_FOUND,
+            message,
+          })
+        }
         return callback({
-          code: grpc.status.NOT_FOUND,
+          code: grpc.status.INVALID_ARGUMENT,
           message,
         })
-      }
-      return callback({
-        code: grpc.status.INVALID_ARGUMENT,
-        message,
       })
-    }
-    console.info(
-      `remote plugin instance created instance_id=${call.request.instanceId} plugin=${call.request.pluginName}`,
-    )
-    callback(null, { instanceId: call.request.instanceId })
   }
 
   // ── DestroyInstance ──────────────────────────────────────────────────────
@@ -190,12 +192,12 @@ export const createServiceHandler = (
       if ((err as NodeJS.ErrnoException).code !== 'ERR_STREAM_WRITE_AFTER_END') {
         console.error(`remote plugin stream error instance_id=${instanceId}`, err)
       }
-      cleanup().catch(() => {})
+      cleanup().catch(() => { })
     })
 
     call.on('cancelled', () => {
       console.info(`remote plugin stream cancelled instance_id=${instanceId}`)
-      cleanup().catch(() => {})
+      cleanup().catch(() => { })
     })
   }
 

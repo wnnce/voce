@@ -10,13 +10,18 @@ import {
 } from '@/proto/plugin.js'
 
 // ---------------------------------------------------------------------------
-// Correlation ID context (AsyncLocalStorage)
+// Context Storage (AsyncLocalStorage)
 // ---------------------------------------------------------------------------
 
 const correlationIdStorage = new AsyncLocalStorage<string>()
+const abortSignalStorage = new AsyncLocalStorage<AbortSignal>()
 
 export const getCurrentCorrelationId = (): string => {
   return correlationIdStorage.getStore() ?? ''
+}
+
+export const getAbortSignal = (): AbortSignal | undefined => {
+  return abortSignalStorage.getStore()
 }
 
 // ---------------------------------------------------------------------------
@@ -36,7 +41,7 @@ export class PluginSession implements Flow {
   private readonly handlers: PluginHandlers
   private readonly ackIntervalMs: number
   private closed = false
-  private readonly runningTasks = new Map<string, AbortController>()
+  private readonly runningTasks = new Map<string, { ac: AbortController; promise: Promise<void> }>()
 
   constructor(
     instanceId: string,
@@ -116,7 +121,7 @@ export class PluginSession implements Flow {
     this.closed = true
 
     // Cancel all running tasks
-    for (const ac of this.runningTasks.values()) {
+    for (const { ac } of this.runningTasks.values()) {
       ac.abort()
     }
     this.runningTasks.clear()
@@ -130,20 +135,21 @@ export class PluginSession implements Flow {
   private startMessageTask(message: RuntimeMessage): void {
     const correlationId = message.messageId
     const ac = new AbortController()
-    this.runningTasks.set(correlationId, ac)
 
-    this.handleRuntimeMessage(message, ac.signal)
+    const promise = this.handleRuntimeMessage(message, ac.signal)
       .catch(() => {}) // errors handled inside handleRuntimeMessage
       .finally(() => {
         this.runningTasks.delete(correlationId)
       })
+
+    this.runningTasks.set(correlationId, { ac, promise })
   }
 
   private handleCancel(message: RuntimeMessage): void {
     const correlationId = message.correlationId
     if (!correlationId) return
-    const ac = this.runningTasks.get(correlationId)
-    ac?.abort()
+    const task = this.runningTasks.get(correlationId)
+    task?.ac.abort()
   }
 
   private async handleRuntimeMessage(
@@ -162,7 +168,9 @@ export class PluginSession implements Flow {
 
       // Run dispatch in correlation context
       await correlationIdStorage.run(correlationId, () =>
-        this.dispatchMessage(message, signal),
+        abortSignalStorage.run(signal, () =>
+          this.dispatchMessage(message, signal),
+        ),
       )
 
       // Success report
@@ -293,8 +301,9 @@ export class PluginSession implements Flow {
 
   private async drainRunningTasks(): Promise<void> {
     const tasks: Promise<void>[] = []
-    for (const [, ac] of this.runningTasks) {
+    for (const { ac, promise } of this.runningTasks.values()) {
       ac.abort()
+      tasks.push(promise)
     }
     // Wait for all tasks to settle
     await Promise.allSettled(tasks)
