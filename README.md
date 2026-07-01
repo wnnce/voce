@@ -22,6 +22,7 @@ but the overall architecture is designed to gradually evolve into:
 ## ⚡ Highlights
 
 - Real-time voice AI pipeline (ASR → LLM → TTS)
+- Cross-language Remote Plugin support (Python, Node.js)
 - Interrupt ongoing LLM / TTS instantly (true streaming interruption)
 - Independent audio / payload processing (no blocking)
 - Built-in backpressure & drop strategy for real-time systems
@@ -217,6 +218,12 @@ Supports both thread-per-node (isolated loops) and worker-pool (cooperative sche
 
 ---
 
+### 6. Cross-language Support (Experimental)
+
+With the **Remote Plugin** architecture, you can write plugins in Python or Node.js, allowing you to host specific business logic or AI model integrations in independent non-Go processes.
+
+---
+
 ## 📊 Benchmark
 
 Environment: MacBook Pro M5 / 24GB RAM
@@ -263,6 +270,7 @@ Environment: MacBook Pro M5 / 24GB RAM
 - [Gateway Architecture](docs/gateway.md)
 - [Integration Protocol](docs/protocol.md)
 - [Built-in Plugins List](docs/plugins_list.md)
+- [Remote Plugin Guide](docs/remote_plugin.md)
 - [Benchmark Guide](docs/benchmark.md)
 
 ## 💡 Inspiration
