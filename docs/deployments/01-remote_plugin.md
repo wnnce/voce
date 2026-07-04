@@ -129,14 +129,16 @@ Remote server 需要返回与本地插件一致的元数据：
 
 Go 侧会把这些 remote plugin 注册为 `PluginBuilder`，使它们可以和本地插件一样参与 workflow 校验与前端展示。
 
-多 remote server 场景需要避免插件名冲突。初版推荐使用命名空间：
+多 remote server 场景通过 `PluginResource` 的 `namespace` 隔离插件来源。`namespace` 不会被拼接到插件名中，Go 侧会通过 `namespace + plugin_name` 定位具体插件；如果调用方不指定 namespace 且多个资源中存在同名插件，则应视为歧义。
+
+推荐为 remote server 配置稳定 namespace：
 
 ```text
-python.text_filter
-node.webhook
+python
+node
 ```
 
-或者在配置中为 remote server 指定 `namespace`，由 Go 侧拼接最终插件名。
+也可以让远端插件自身使用带前缀的插件名，例如 `python.text_filter`、`node.webhook`，但这是插件名本身的一部分，不是 Go 侧自动拼接结果。
 
 ---
 
@@ -291,11 +293,13 @@ Report 状态建议：
 
 | 状态 | 说明 |
 |------|------|
-| `REPORT_STATUS_OK` | 事件处理成功 |
-| `REPORT_STATUS_ERROR` | 插件处理失败 |
+| `REPORT_STATUS_OK` | 远端回调正常完成 |
+| `REPORT_STATUS_ERROR` | 远端 SDK 捕获到未处理异常，当前实例进入失败语义 |
 | `REPORT_STATUS_CANCELED` | 事件因上下文取消或实例关闭终止 |
 
-Go adapter 收到 `error` 时应记录日志，并按本地插件错误处理语义决定是否中断 workflow。如果该次调用超时或由于某些原因被取消，Go 端会通过 stream 下发 `CancelEvent`。
+`report(error)` 是协议层的正常 stream 消息，不代表 gRPC stream 本身异常；但它的业务语义不是“可恢复业务失败”，而是远端插件回调发生未处理异常。Go adapter 收到 `REPORT_STATUS_ERROR` 后，应将本次 `doCall` 视为失败，并把该 remote plugin instance 标记为 failed，后续事件不再发送给该实例，等待生命周期清理。
+
+如果业务逻辑需要表达可恢复失败，应通过普通 `emit_payload` / `emit_signal` 输出结构化结果，而不是使用 `REPORT_STATUS_ERROR`。如果该次调用超时或由于某些原因被取消，Go 端会通过 stream 下发 `CancelEvent`。
 
 `correlation_id` 只表达因果关系，不等同于 pending event 的硬约束。remote plugin 可以在 report 后继续发送异步输出，此类输出仍可携带原始 `correlation_id`，但不再影响原事件的完成状态。
 

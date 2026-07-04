@@ -43,9 +43,9 @@ Remote Plugin 并非作为子进程启动，而是作为独立的 **Remote Plugi
 ```python
 import asyncio
 from pydantic import BaseModel
-from voce.core.plugin import AsyncPlugin
+from voce import App, Config, plugin
+from voce.core import AsyncPlugin
 from voce.schema import Payload
-from voce.app import App
 
 # 1. 定义插件配置 (Configuration Schema)
 class MyConfig(BaseModel):
@@ -53,8 +53,13 @@ class MyConfig(BaseModel):
     max_tokens: int = 100
 
 # 2. 实现插件逻辑
+@plugin(
+    name="python.my_plugin",
+    description="A Python plugin for translation",
+    config_type=MyConfig,
+)
 class MyPlugin(AsyncPlugin[MyConfig]):
-    
+
     async def on_start(self, flow):
         self.logger.info("Plugin started, initializing resources...")
 
@@ -70,16 +75,8 @@ class MyPlugin(AsyncPlugin[MyConfig]):
 
 # 3. 注册并启动 gRPC 服务
 async def main():
-    app = App()
-    
-    app.register_plugin(
-        name="python.my_plugin",
-        description="A Python plugin for translation",
-        config_schema=MyConfig,
-        plugin_class=MyPlugin
-    )
-    
-    await app.serve(port=50051)
+    app = App(Config(port=50051))
+    await app.serve()
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -93,7 +90,7 @@ Node.js 版本采用函数式定义，结合 Zod 库提供配置校验。
 
 ```typescript
 import { z } from 'zod'
-import { definePlugin, pluginRegistry } from '@voce/remote-plugin'
+import { App, definePlugin, pluginRegistry } from '@voce/plugin-sdk'
 
 // 1. 定义配置 Schema
 const MyConfigSchema = z.object({ 
@@ -127,27 +124,30 @@ const myPlugin = definePlugin({
 
 // 注册插件
 pluginRegistry.register(myPlugin)
-// 随后需要启动关联的 gRPC Server
+
+const app = new App({ port: 50052 })
+await app.serve()
 ```
 
 ---
 
 ## 4. 服务配置与集成 (Integration)
 
-远端插件服务启动后，需要在 Voce 主服务的配置文件 `configs/config.yaml` 或 `configs/gateway.yaml` 中进行声明：
+远端插件服务启动后，需要在 Voce 主服务配置的 `server.plugin_servers` 中声明：
 
 ```yaml
 # configs/config.yaml
-remote_plugins:
-  - name: "python_ai_server"
-    address: "127.0.0.1:50051"
-    enable: true
-  - name: "node_utils_server"
-    address: "127.0.0.1:50052"
-    enable: true
+server:
+  plugin_servers:
+    - url: "127.0.0.1:50051"
+      namespace: "python_ai_server"
+      enable: true
+    - url: "127.0.0.1:50052"
+      namespace: "node_utils_server"
+      enable: true
 ```
 
-Voce 启动时会自动通过 `Ping` 接口进行连接，并通过 `ListPlugins` 接口拉取可用插件列表。之后在 Workflow 配置或前端 UI 中即可直接选择 `python.my_plugin` 或 `node.my_plugin`。
+Voce 启动时会自动通过 `Ping` 接口进行连接，并通过 `ListPlugins` 接口拉取可用插件列表。`namespace` 是插件资源命名空间，Go 侧不会把它拼进插件名；Workflow 需要按资源命名空间和插件名定位插件。没有显式 namespace 时，默认使用 remote server 的 `url` 作为 namespace。
 
 ---
 
