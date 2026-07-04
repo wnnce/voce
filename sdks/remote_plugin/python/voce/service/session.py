@@ -157,7 +157,7 @@ class PluginSession(Flow):
                 with suppress(asyncio.CancelledError):
                     await ack_keepalive_task
             current_correlation_id.reset(token)
-            await self._tasks.pop(correlation_id, None)
+            self._tasks.pop(correlation_id, None)
 
     async def _send_ack(self, correlation_id: str) -> None:
         ack = self._new_runtime_message(
