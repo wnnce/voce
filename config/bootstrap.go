@@ -40,12 +40,19 @@ type RedisConfig struct {
 type VoceConfig struct {
 	CommonConfig  `yaml:",inline"`
 	NetworkConfig `yaml:",inline"`
-	GrpcPort      int    `json:"grpc_port" yaml:"grpc_port"`
-	Mode          string `json:"mode" yaml:"mode"`
-	GatewayAddr   string `json:"gateway_addr" yaml:"gateway_addr"`
-	PoolSize      int    `json:"pool_size" yaml:"pool_size"`
-	WorkflowStore string `json:"workflow_store" yaml:"workflow_store"` // "file" or "redis"
-	WorkflowDir   string `json:"workflow_dir" yaml:"workflow_dir"`     // directory for "file" store
+	GrpcPort      int                  `json:"grpc_port" yaml:"grpc_port"`
+	Mode          string               `json:"mode" yaml:"mode"`
+	GatewayAddr   string               `json:"gateway_addr" yaml:"gateway_addr"`
+	PoolSize      int                  `json:"pool_size" yaml:"pool_size"`
+	WorkflowStore string               `json:"workflow_store" yaml:"workflow_store"` // "file" or "redis"
+	WorkflowDir   string               `json:"workflow_dir" yaml:"workflow_dir"`     // directory for "file" store
+	PluginServers []PluginServerConfig `json:"plugin_servers" yaml:"plugin_servers"`
+}
+
+type PluginServerConfig struct {
+	URL       string `json:"url" yaml:"url"`
+	Namespace string `json:"namespace" yaml:"namespace"`
+	Enable    bool   `json:"enable" yaml:"enable"`
 }
 
 // GatewayServerConfig is the configuration for the Gateway service itself

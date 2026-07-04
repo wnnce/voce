@@ -56,7 +56,8 @@ const WorkflowPage = React.forwardRef<WorkflowPageHandle, object>((_, ref) => {
       let changed = false;
       const nextNodes = nds.map((n) => {
         if (!n.data.pluginInfo && n.data.plugin) {
-          const plugin = allPlugins.find((e) => e.name === n.data.plugin);
+          const pluginNamespace = n.data.namespace || 'local';
+          const plugin = allPlugins.find((e) => e.name === n.data.plugin && (e.namespace || 'local') === pluginNamespace);
           if (plugin) {
             changed = true;
             return {
@@ -164,7 +165,8 @@ const WorkflowPage = React.forwardRef<WorkflowPageHandle, object>((_, ref) => {
   const handleSaveNodeConfig = useCallback((config: Partial<NodeConfig>) => {
     // Handle both property names
     const pluginName = config.plugin;
-    const plugin = allPlugins.find((e) => e.name === pluginName);
+    const pluginNamespace = config.namespace || 'local';
+    const plugin = allPlugins.find((e) => e.name === pluginName && (e.namespace || 'local') === pluginNamespace);
 
     if (selectedNode) {
       setNodes((nds) =>
@@ -225,6 +227,7 @@ const WorkflowPage = React.forwardRef<WorkflowPageHandle, object>((_, ref) => {
       nodes: nodes.map((n) => ({
         id: n.id,
         name: n.data.name,
+        namespace: n.data.namespace,
         plugin: n.data.plugin,
         config: n.data.config,
         metadata: { position: n.position },
@@ -261,13 +264,15 @@ const WorkflowPage = React.forwardRef<WorkflowPageHandle, object>((_, ref) => {
     
     const nodeData = wf.nodes?.map(n => {
       const pluginName = n.plugin;
-      const pluginInfo = allPlugins.find((e) => e.name === pluginName);
+      const pluginNamespace = n.namespace || 'local';
+      const pluginInfo = allPlugins.find((e) => e.name === pluginName && (e.namespace || 'local') === pluginNamespace);
       return {
         id: n.id,
         type: 'workflowNode',
         position: (n.metadata?.position as { x: number; y: number } | undefined) || { x: 0, y: 0 },
         data: { 
           name: n.name, 
+          namespace: n.namespace,
           plugin: pluginName,
           config: n.config,
           pluginInfo: pluginInfo,

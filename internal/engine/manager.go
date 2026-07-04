@@ -33,14 +33,16 @@ type fileWorkflowConfigManager struct {
 	mu      sync.RWMutex
 	configs map[string]WorkflowConfig
 	nameMap map[string]string // Name -> ID
+	store   *PluginStore
 }
 
 // NewFileWorkflowConfigManager creates a new instance.
-func NewFileWorkflowConfigManager(dirPath string) WorkflowConfigManager {
+func NewFileWorkflowConfigManager(dirPath string, store *PluginStore) WorkflowConfigManager {
 	m := &fileWorkflowConfigManager{
 		dirPath: dirPath,
 		configs: make(map[string]WorkflowConfig),
 		nameMap: make(map[string]string),
+		store:   store,
 	}
 	m.load()
 	return m
@@ -118,7 +120,12 @@ func (m *fileWorkflowConfigManager) List(ctx context.Context) ([]WorkflowConfig,
 }
 
 func (m *fileWorkflowConfigManager) Save(ctx context.Context, cfg WorkflowConfig) error {
-	if _, err := BuildGraph(&cfg); err != nil {
+	builders, err := ResolvePluginBuilders(m.store, cfg.Nodes)
+	if err != nil {
+		return err
+	}
+
+	if _, err = BuildGraph(&cfg, builders); err != nil {
 		return fmt.Errorf("invalid workflow config: %w", err)
 	}
 
@@ -221,14 +228,16 @@ type redisWorkflowConfigManager struct {
 	rdb          *redis.Client
 	keyWorkflows string
 	keyNames     string
+	store        *PluginStore
 }
 
 // NewRedisWorkflowConfigManager creates a new Redis implementation of WorkflowConfigManager.
-func NewRedisWorkflowConfigManager(rdb *redis.Client) WorkflowConfigManager {
+func NewRedisWorkflowConfigManager(rdb *redis.Client, store *PluginStore) WorkflowConfigManager {
 	return &redisWorkflowConfigManager{
 		rdb:          rdb,
 		keyWorkflows: "voce:workflows",
 		keyNames:     "voce:workflow_names",
+		store:        store,
 	}
 }
 
@@ -280,7 +289,12 @@ func (m *redisWorkflowConfigManager) List(ctx context.Context) ([]WorkflowConfig
 }
 
 func (m *redisWorkflowConfigManager) Save(ctx context.Context, cfg WorkflowConfig) error {
-	if _, err := BuildGraph(&cfg); err != nil {
+	builders, err := ResolvePluginBuilders(m.store, cfg.Nodes)
+	if err != nil {
+		return err
+	}
+
+	if _, err = BuildGraph(&cfg, builders); err != nil {
 		return fmt.Errorf("invalid workflow config: %w", err)
 	}
 

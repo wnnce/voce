@@ -30,7 +30,7 @@ type Workflow struct {
 }
 
 // NewWorkflow creates a new workflow runtime instance from a validated Graph.
-func NewWorkflow(parentCtx context.Context, graph *Graph) (*Workflow, error) {
+func NewWorkflow(parentCtx context.Context, graph *Graph, builders map[string]PluginBuilder) (*Workflow, error) {
 	ctx, cancel := context.WithCancel(parentCtx)
 
 	w := &Workflow{
@@ -50,7 +50,7 @@ func NewWorkflow(parentCtx context.Context, graph *Graph) (*Workflow, error) {
 		w.scheduler = NewScheduler(ctx, workers, 128)
 	}
 
-	if err := w.initNodes(); err != nil {
+	if err := w.initNodes(builders); err != nil {
 		cancel()
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func NewWorkflow(parentCtx context.Context, graph *Graph) (*Workflow, error) {
 	return w, nil
 }
 
-func (w *Workflow) initNodes() error {
+func (w *Workflow) initNodes(builders map[string]PluginBuilder) error {
 	w.nodes = make([]Node, len(w.graph.OrderedNodes))
 	w.indexMap = make(map[string]int, len(w.graph.OrderedNodes))
 	w.nameMap = make(map[string]int, len(w.graph.OrderedNodes))
@@ -80,9 +80,9 @@ func (w *Workflow) initNodes() error {
 			return fmt.Errorf("duplicate node Name found: %s", nodeCfg.Name)
 		}
 
-		builder := LoadPluginBuilder(nodeCfg.Plugin)
+		builder := builders[nodeCfg.ID]
 		if builder == nil {
-			return fmt.Errorf("plugin builder not found for type: %s", nodeCfg.Plugin)
+			return fmt.Errorf("plugin builder not provided for node: %s", nodeCfg.ID)
 		}
 
 		ext, err := builder.Build(nodeCfg.Config)

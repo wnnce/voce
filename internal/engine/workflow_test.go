@@ -26,7 +26,27 @@ func (m *MockPluginConfig) Decode(data []byte) error {
 	return json.Unmarshal(data, m)
 }
 
-func TestWorkflow_TopologicalSort_And_Execution(t *testing.T) {
+func TestWorkflow(t *testing.T) {
+	store := NewPluginStore(LocalPluginResource())
+
+	t.Run("TopologicalSortAndExecution", func(t *testing.T) {
+		testWorkflowTopologicalSortAndExecution(t, store)
+	})
+	t.Run("Dispatch", func(t *testing.T) {
+		testWorkflowDispatch(t, store)
+	})
+	t.Run("SendToNodeWithName", func(t *testing.T) {
+		testWorkflowSendToNodeWithName(t, store)
+	})
+	t.Run("WorkerPoolExecution", func(t *testing.T) {
+		testWorkflowWorkerPoolExecution(t, store)
+	})
+	t.Run("WorkerPoolDefaultWorkers", func(t *testing.T) {
+		testWorkflowWorkerPoolDefaultWorkers(t, store)
+	})
+}
+
+func testWorkflowTopologicalSortAndExecution(t *testing.T, store *PluginStore) {
 	// ignore duplicate registration error; plugin may already be registered from other tests
 	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
 		return &BuiltinPlugin{}
@@ -48,10 +68,11 @@ func TestWorkflow_TopologicalSort_And_Execution(t *testing.T) {
 		},
 	}
 
-	graph, err := BuildGraph(config)
+	builders := localTestPluginBuilders(t, store, config.Nodes)
+	graph, err := BuildGraph(config, builders)
 	require.NoError(t, err)
 
-	wf, err := NewWorkflow(context.Background(), graph)
+	wf, err := NewWorkflow(context.Background(), graph, builders)
 	require.NoError(t, err)
 	require.Len(t, wf.nodes, 3)
 
@@ -66,7 +87,7 @@ func TestWorkflow_TopologicalSort_And_Execution(t *testing.T) {
 	wf.Stop()
 }
 
-func TestWorkflow_Dispatch(t *testing.T) {
+func testWorkflowDispatch(t *testing.T, store *PluginStore) {
 	// ignore duplicate registration error; plugin may already be registered from other tests
 	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
 		return &BuiltinPlugin{}
@@ -82,10 +103,11 @@ func TestWorkflow_Dispatch(t *testing.T) {
 		},
 	}
 
-	graph, err := BuildGraph(config)
+	builders := localTestPluginBuilders(t, store, config.Nodes)
+	graph, err := BuildGraph(config, builders)
 	require.NoError(t, err)
 
-	wf, err := NewWorkflow(context.Background(), graph)
+	wf, err := NewWorkflow(context.Background(), graph, builders)
 	require.NoError(t, err)
 	require.NoError(t, wf.Start())
 	defer wf.Stop()
@@ -106,7 +128,7 @@ func TestWorkflow_Dispatch(t *testing.T) {
 	<-wctx.Done()
 }
 
-func TestWorkflow_SendToNodeWithName(t *testing.T) {
+func testWorkflowSendToNodeWithName(t *testing.T, store *PluginStore) {
 	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
 		return &BuiltinPlugin{}
 	}, PluginMetadata{
@@ -122,10 +144,11 @@ func TestWorkflow_SendToNodeWithName(t *testing.T) {
 		},
 	}
 
-	graph, err := BuildGraph(config)
+	builders := localTestPluginBuilders(t, store, config.Nodes)
+	graph, err := BuildGraph(config, builders)
 	require.NoError(t, err)
 
-	wf, err := NewWorkflow(context.Background(), graph)
+	wf, err := NewWorkflow(context.Background(), graph, builders)
 	require.NoError(t, err)
 	require.NoError(t, wf.Start())
 	defer wf.Stop()
@@ -152,7 +175,7 @@ func TestWorkflow_SendToNodeWithName(t *testing.T) {
 	assert.Contains(t, err.Error(), "node Name NonExistent not found")
 }
 
-func TestWorkflow_WorkerPoolExecution(t *testing.T) {
+func testWorkflowWorkerPoolExecution(t *testing.T, store *PluginStore) {
 	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
 		return &BuiltinPlugin{}
 	}, PluginMetadata{
@@ -173,10 +196,11 @@ func TestWorkflow_WorkerPoolExecution(t *testing.T) {
 		},
 	}
 
-	graph, err := BuildGraph(config)
+	builders := localTestPluginBuilders(t, store, config.Nodes)
+	graph, err := BuildGraph(config, builders)
 	require.NoError(t, err)
 
-	wf, err := NewWorkflow(context.Background(), graph)
+	wf, err := NewWorkflow(context.Background(), graph, builders)
 	require.NoError(t, err)
 	require.NotNil(t, wf.scheduler)
 
@@ -193,7 +217,7 @@ func TestWorkflow_WorkerPoolExecution(t *testing.T) {
 	wf.Stop()
 }
 
-func TestWorkflow_WorkerPoolDefaultWorkers(t *testing.T) {
+func testWorkflowWorkerPoolDefaultWorkers(t *testing.T, store *PluginStore) {
 	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
 		return &BuiltinPlugin{}
 	}, PluginMetadata{
@@ -230,10 +254,11 @@ func TestWorkflow_WorkerPoolDefaultWorkers(t *testing.T) {
 				Nodes:            nodes,
 			}
 
-			graph, err := BuildGraph(config)
+			builders := localTestPluginBuilders(t, store, config.Nodes)
+			graph, err := BuildGraph(config, builders)
 			require.NoError(t, err)
 
-			wf, err := NewWorkflow(context.Background(), graph)
+			wf, err := NewWorkflow(context.Background(), graph, builders)
 			require.NoError(t, err)
 			defer wf.Stop()
 

@@ -21,12 +21,12 @@ type Graph struct {
 //  4. Performs contract validation between connected nodes, ensuring output types match input expectations.
 //  5. Topologically sorts the nodes to determine a safe execution order,
 //     where all dependencies of a node are processed before the node itself.
-func BuildGraph(config *WorkflowConfig) (*Graph, error) {
+func BuildGraph(config *WorkflowConfig, builders map[string]PluginBuilder) (*Graph, error) {
 	if config.Head == "" {
 		return nil, fmt.Errorf("a 'head' node must be explicitly defined in workflow config")
 	}
 
-	nodesMap, err := parseNodes(config.Nodes)
+	nodesMap, err := parseNodes(config.Nodes, builders)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func BuildGraph(config *WorkflowConfig) (*Graph, error) {
 
 	// Validate that outputs of source nodes match inputs of target nodes based on edge type.
 	// This ensures data compatibility and prevents runtime errors due to mismatched interfaces.
-	if contractErr := validateEdgeContracts(nodesMap, config.Edges); contractErr != nil {
+	if contractErr := validateEdgeContracts(nodesMap, config.Edges, builders); contractErr != nil {
 		return nil, contractErr
 	}
 
@@ -56,14 +56,35 @@ func BuildGraph(config *WorkflowConfig) (*Graph, error) {
 	}, nil
 }
 
-func parseNodes(nodes []NodeConfig) (map[string]NodeConfig, error) {
+func ResolvePluginBuilders(store *PluginStore, configs []NodeConfig) (map[string]PluginBuilder, error) {
+	if store == nil {
+		return nil, fmt.Errorf("%w: plugin store is nil", ErrPluginInvalid)
+	}
+
+	builders := make(map[string]PluginBuilder, len(configs))
+	for _, nodeCfg := range configs {
+		builder, err := store.LoadBuilder(nodeCfg.Namespace, nodeCfg.Plugin)
+		if err != nil {
+			return nil, fmt.Errorf("plugin builder load error for type: %s (namespace: %s): %w",
+				nodeCfg.Plugin, nodeCfg.Namespace, err)
+		}
+		if builder == nil {
+			return nil, fmt.Errorf("plugin builder not found for type: %s (namespace: %s)",
+				nodeCfg.Plugin, nodeCfg.Namespace)
+		}
+		builders[nodeCfg.ID] = builder
+	}
+	return builders, nil
+}
+
+func parseNodes(nodes []NodeConfig, builders map[string]PluginBuilder) (map[string]NodeConfig, error) {
 	nodesMap := make(map[string]NodeConfig, len(nodes))
 	for _, n := range nodes {
 		if _, exists := nodesMap[n.ID]; exists {
 			return nil, fmt.Errorf("duplicate node ID found: %s", n.ID)
 		}
-		if builder := LoadPluginBuilder(n.Plugin); builder == nil {
-			return nil, fmt.Errorf("plugin builder not found for type: %s", n.Plugin)
+		if builders[n.ID] == nil {
+			return nil, fmt.Errorf("plugin builder not provided for node: %s", n.ID)
 		}
 		nodesMap[n.ID] = n
 	}
@@ -79,10 +100,10 @@ func checkSelfLoops(edges []EdgeConfig) error {
 	return nil
 }
 
-func validateEdgeContracts(nodesMap map[string]NodeConfig, edges []EdgeConfig) error {
+func validateEdgeContracts(nodesMap map[string]NodeConfig, edges []EdgeConfig, builders map[string]PluginBuilder) error {
 	for _, edge := range edges {
-		srcCfg, srcExists := nodesMap[edge.Source]
-		tgtCfg, tgtExists := nodesMap[edge.Target]
+		_, srcExists := nodesMap[edge.Source]
+		_, tgtExists := nodesMap[edge.Target]
 
 		if !srcExists {
 			return fmt.Errorf("edge source node not found: %s", edge.Source)
@@ -91,8 +112,8 @@ func validateEdgeContracts(nodesMap map[string]NodeConfig, edges []EdgeConfig) e
 			return fmt.Errorf("edge target node not found: %s", edge.Target)
 		}
 
-		srcBuilder := LoadPluginBuilder(srcCfg.Plugin)
-		tgtBuilder := LoadPluginBuilder(tgtCfg.Plugin)
+		srcBuilder := builders[edge.Source]
+		tgtBuilder := builders[edge.Target]
 
 		var prefix string
 		switch edge.Type {

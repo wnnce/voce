@@ -212,9 +212,26 @@ func BenchmarkDeepMerge(b *testing.B) {
 	}
 }
 
-func TestSessionManager_Lifecycle(t *testing.T) {
+func TestSessionManager(t *testing.T) {
+	store := NewPluginStore(LocalPluginResource())
+
+	t.Run("Lifecycle", func(t *testing.T) {
+		testSessionManagerLifecycle(t, store)
+	})
+	t.Run("Cleanup", func(t *testing.T) {
+		testSessionManagerCleanup(t, store)
+	})
+	t.Run("RemoveSession", func(t *testing.T) {
+		testSessionManagerRemoveSession(t, store)
+	})
+	t.Run("Observers", func(t *testing.T) {
+		testSessionManagerObservers(t, store)
+	})
+}
+
+func testSessionManagerLifecycle(t *testing.T, store *PluginStore) {
 	tempDir := t.TempDir()
-	wm := NewFileWorkflowConfigManager(tempDir)
+	wm := NewFileWorkflowConfigManager(tempDir, store)
 
 	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
 		return &BuiltinPlugin{}
@@ -230,7 +247,7 @@ func TestSessionManager_Lifecycle(t *testing.T) {
 	}
 	require.NoError(t, wm.Save(context.Background(), wfCfg))
 
-	sm := NewSessionManager(wm, 500*time.Millisecond)
+	sm := NewSessionManager(wm, store, 500*time.Millisecond)
 	defer sm.Stop()
 
 	ctx := context.Background()
@@ -264,9 +281,9 @@ func TestSessionManager_Lifecycle(t *testing.T) {
 	assert.Equal(t, int32(WorkflowStateStopped), session.Workflow.state.Load())
 }
 
-func TestSessionManager_Cleanup(t *testing.T) {
+func testSessionManagerCleanup(t *testing.T, store *PluginStore) {
 	tempDir := t.TempDir()
-	wm := NewFileWorkflowConfigManager(tempDir)
+	wm := NewFileWorkflowConfigManager(tempDir, store)
 
 	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
 		return &BuiltinPlugin{}
@@ -283,7 +300,7 @@ func TestSessionManager_Cleanup(t *testing.T) {
 	require.NoError(t, wm.Save(context.Background(), wfCfg))
 
 	timeout := 100 * time.Millisecond
-	sm := NewSessionManager(wm, timeout)
+	sm := NewSessionManager(wm, store, timeout)
 	defer sm.Stop()
 
 	s2Key := protocol.NewSessionKey()
@@ -331,9 +348,9 @@ func TestDeepMergeAST_NonObject(t *testing.T) {
 	assert.Contains(t, raw, "[1, 2]")
 }
 
-func TestSessionManager_RemoveSession(t *testing.T) {
+func testSessionManagerRemoveSession(t *testing.T, store *PluginStore) {
 	tempDir := t.TempDir()
-	wm := NewFileWorkflowConfigManager(tempDir)
+	wm := NewFileWorkflowConfigManager(tempDir, store)
 
 	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
 		return &BuiltinPlugin{}
@@ -345,7 +362,7 @@ func TestSessionManager_RemoveSession(t *testing.T) {
 	}
 	require.NoError(t, wm.Save(context.Background(), wfCfg))
 
-	sm := NewSessionManager(wm, 5*time.Second)
+	sm := NewSessionManager(wm, store, 5*time.Second)
 	defer sm.Stop()
 
 	sRemoveKey := protocol.NewSessionKey()
@@ -368,9 +385,9 @@ func TestSessionManager_RemoveSession(t *testing.T) {
 	})
 }
 
-func TestSessionManager_Observers(t *testing.T) {
+func testSessionManagerObservers(t *testing.T, store *PluginStore) {
 	tempDir := t.TempDir()
-	wm := NewFileWorkflowConfigManager(tempDir)
+	wm := NewFileWorkflowConfigManager(tempDir, store)
 
 	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
 		return &BuiltinPlugin{}
@@ -382,7 +399,7 @@ func TestSessionManager_Observers(t *testing.T) {
 	}
 	require.NoError(t, wm.Save(context.Background(), wfCfg))
 
-	sm := NewSessionManager(wm, 100*time.Millisecond)
+	sm := NewSessionManager(wm, store, 100*time.Millisecond)
 	defer sm.Stop()
 
 	var createdCalled atomic.Bool

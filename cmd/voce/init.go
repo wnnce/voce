@@ -13,6 +13,7 @@ import (
 	"github.com/wnnce/voce/internal/engine"
 	"github.com/wnnce/voce/internal/machine"
 	"github.com/wnnce/voce/internal/metadata"
+	"github.com/wnnce/voce/internal/remote"
 	"github.com/wnnce/voce/pkg/logging"
 )
 
@@ -20,10 +21,12 @@ type appBase struct {
 	container route.AppContainer
 	sm        *engine.SessionManager
 	wm        engine.WorkflowConfigManager
+	rm        *remote.Manager
+	store     *engine.PluginStore
 }
 
-func InitApplication(_ context.Context, cfg config.VoceBootstrap) (route.AppContainer, func(), error) {
-	base, err := initBaseApplication(cfg)
+func InitApplication(ctx context.Context, cfg config.VoceBootstrap) (route.AppContainer, func(), error) {
+	base, err := initBaseApplication(ctx, cfg)
 	if err != nil {
 		return route.AppContainer{}, nil, err
 	}
@@ -35,12 +38,15 @@ func InitApplication(_ context.Context, cfg config.VoceBootstrap) (route.AppCont
 	}
 
 	cleanup := func() {
+		if base.rm != nil {
+			base.rm.Shutdown()
+		}
 		base.sm.Stop()
 	}
 	return base.container, cleanup, nil
 }
 
-func initBaseApplication(cfg config.VoceBootstrap) (*appBase, error) {
+func initBaseApplication(ctx context.Context, cfg config.VoceBootstrap) (*appBase, error) {
 	logger, err := logging.NewLoggerWithContext(
 		cfg.Logging,
 		metadata.ContextTraceKey,
@@ -51,32 +57,41 @@ func initBaseApplication(cfg config.VoceBootstrap) (*appBase, error) {
 	}
 	slog.SetDefault(logger)
 
+	store := engine.NewPluginStore(engine.LocalPluginResource())
+
 	var wm engine.WorkflowConfigManager
 	if cfg.Server.WorkflowStore == "redis" {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		rCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		rdb, err := dal.NewRedisClient(ctx, cfg.Redis)
-		if err != nil {
-			return nil, err
+		rdb, er := dal.NewRedisClient(rCtx, cfg.Redis)
+		if er != nil {
+			return nil, er
 		}
-		wm = engine.NewRedisWorkflowConfigManager(rdb)
+		wm = engine.NewRedisWorkflowConfigManager(rdb, store)
 	} else {
 		dir := cfg.Server.WorkflowDir
 		if dir == "" {
 			dir = "configs/workflows"
 		}
-		wm = engine.NewFileWorkflowConfigManager(dir)
+		wm = engine.NewFileWorkflowConfigManager(dir, store)
 	}
 
-	sm := engine.NewSessionManager(wm, 1*time.Minute)
+	sm := engine.NewSessionManager(wm, store, 1*time.Minute)
 
 	base := &appBase{
-		sm: sm,
-		wm: wm,
+		sm:    sm,
+		wm:    wm,
+		store: store,
 	}
+
+	if hasEnabledPluginServers(cfg.Server.PluginServers) {
+		base.rm = remote.NewManager(ctx, store)
+		base.rm.AddRemotes(ctx, cfg.Server.PluginServers)
+	}
+
 	base.container.Workflow = handler.NewWorkflowHandler(wm)
-	base.container.Plugin = handler.NewPluginHandler()
+	base.container.Plugin = handler.NewPluginHandler(store)
 	base.container.Monitor = handler.NewMonitorHandler(sm)
 	base.container.Realtime = realtime.NewHandler(sm)
 	base.container.Grpc = realtime.NewStreamService(sm)
@@ -91,4 +106,13 @@ func initGatewayMode(base *appBase, cfg config.VoceBootstrap) {
 
 func initStandaloneMode(base *appBase) {
 	base.container.Session = handler.NewStandaloneSessionHandler(base.sm)
+}
+
+func hasEnabledPluginServers(configs []config.PluginServerConfig) bool {
+	for _, cfg := range configs {
+		if cfg.Enable && cfg.URL != "" {
+			return true
+		}
+	}
+	return false
 }

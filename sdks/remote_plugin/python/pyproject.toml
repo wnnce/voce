@@ -1,0 +1,51 @@
+[project]
+name = "voce"
+version = "0.1.0"
+description = "Python SDK for Voce remote plugins"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "grpcio>=1.81.1",
+    "grpcio-tools>=1.81.1",
+    "protobuf>=6.33.5,<7.0.0",
+    "pydantic>=2.13.4",
+]
+
+[dependency-groups]
+dev = [
+    "black>=26.5.1",
+    "pytest>=9.1.0",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.15.17",
+]
+
+
+[build-system]
+requires = ["uv_build>=0.11.21,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "voce"
+module-root = ""
+
+[tool.black]
+line-length = 100
+target-version = ["py314"]
+extend-exclude = '''
+(
+  ^/voce/proto/.*_pb2.*\.pyi?$
+)
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+extend-exclude = ["voce/proto/*_pb2*.py*"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests", "voce/plugins"]
+pythonpath = ["."]

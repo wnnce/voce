@@ -249,6 +249,116 @@ func TestBuiltinProperties_CopyTo(t *testing.T) {
 	})
 }
 
+func TestBuiltinProperties_MarshalJSON(t *testing.T) {
+	t.Run("empty entries", func(t *testing.T) {
+		props := &builtinProperties{}
+		data, err := props.MarshalJSON()
+		require.NoError(t, err)
+		assert.JSONEq(t, `{}`, string(data))
+	})
+
+	t.Run("primitive values", func(t *testing.T) {
+		props := &builtinProperties{entries: make([]entry, 0)}
+		_ = props.Set("text", "hello")
+		_ = props.Set("is_final", true)
+		_ = props.Set("count", 42)
+
+		data, err := props.MarshalJSON()
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"text":"hello","is_final":true,"count":42}`, string(data))
+	})
+
+	t.Run("duplicate key deduplication", func(t *testing.T) {
+		props := &builtinProperties{entries: make([]entry, 0)}
+		_ = props.Set("text", "first")
+		_ = props.Set("text", "second")
+		_ = props.Set("text", "third")
+
+		data, err := props.MarshalJSON()
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"text":"third"}`, string(data))
+	})
+
+	t.Run("complex type stored as bytes uses RawMessage", func(t *testing.T) {
+		type nested struct {
+			Name string `json:"name"`
+		}
+		props := &builtinProperties{entries: make([]entry, 0)}
+		_ = props.Set("obj", nested{Name: "voce"})
+
+		data, err := props.MarshalJSON()
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"obj":{"name":"voce"}}`, string(data))
+	})
+
+	t.Run("round trip", func(t *testing.T) {
+		src := &builtinProperties{entries: make([]entry, 0)}
+		_ = src.Set("text", "hello")
+		_ = src.Set("is_final", true)
+
+		data, err := src.MarshalJSON()
+		require.NoError(t, err)
+
+		dst := &builtinProperties{entries: make([]entry, 0)}
+		require.NoError(t, dst.UnmarshalJSON(data))
+
+		val, ok := dst.Get("text")
+		assert.True(t, ok)
+		assert.Equal(t, "hello", val)
+
+		val, ok = dst.Get("is_final")
+		assert.True(t, ok)
+		assert.Equal(t, true, val)
+	})
+}
+
+func TestBuiltinProperties_UnmarshalJSON(t *testing.T) {
+	t.Run("basic unmarshal", func(t *testing.T) {
+		props := &builtinProperties{entries: make([]entry, 0)}
+		err := props.UnmarshalJSON([]byte(`{"name":"test","count":3}`))
+		require.NoError(t, err)
+
+		val, ok := props.Get("name")
+		assert.True(t, ok)
+		assert.Equal(t, "test", val)
+	})
+
+	t.Run("invalid json", func(t *testing.T) {
+		props := &builtinProperties{entries: make([]entry, 0)}
+		err := props.UnmarshalJSON([]byte(`{invalid`))
+		assert.Error(t, err)
+	})
+
+	t.Run("readonly rejects unmarshal", func(t *testing.T) {
+		props := &builtinProperties{entries: make([]entry, 0)}
+		props.setReadOnly()
+		err := props.UnmarshalJSON([]byte(`{"key":"val"}`))
+		assert.Error(t, err)
+	})
+}
+
+func TestSignal_MarshalJSON(t *testing.T) {
+	signal := NewSignal("interrupter")
+	_ = signal.Set("text", "hello")
+	_ = signal.Set("is_final", true)
+
+	// MarshalJSON is promoted from builtinProperties,
+	// so it serializes only properties (not name)
+	data, err := signal.ReadOnly().(*builtinSignal).MarshalJSON()
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"text":"hello","is_final":true}`, string(data))
+}
+
+func TestPayload_MarshalJSON(t *testing.T) {
+	payload := NewPayload("asr_result")
+	_ = payload.Set("text", "world")
+	_ = payload.Set("is_final", false)
+
+	data, err := payload.ReadOnly().(*builtinPayload).MarshalJSON()
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"text":"world","is_final":false}`, string(data))
+}
+
 func BenchmarkBuiltinPropertiesGetVsMap(b *testing.B) {
 	scenarios := []struct {
 		name        string

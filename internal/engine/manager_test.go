@@ -30,11 +30,28 @@ func testWorkflowConfig(id string, name string) WorkflowConfig {
 	}
 }
 
-func TestFileWorkflowConfigManager_LazyLoad(t *testing.T) {
+func TestFileWorkflowConfigManager(t *testing.T) {
+	store := NewPluginStore(LocalPluginResource())
+
+	t.Run("LazyLoad", func(t *testing.T) {
+		testFileWorkflowConfigManagerLazyLoad(t, store)
+	})
+	t.Run("NameUniqueness", func(t *testing.T) {
+		testFileWorkflowConfigManagerNameUniqueness(t, store)
+	})
+	t.Run("Concurrency", func(t *testing.T) {
+		testFileWorkflowConfigManagerConcurrency(t, store)
+	})
+	t.Run("Delete", func(t *testing.T) {
+		testFileWorkflowConfigManagerDelete(t, store)
+	})
+}
+
+func testFileWorkflowConfigManagerLazyLoad(t *testing.T, store *PluginStore) {
 	ctx := context.Background()
 	dirPath := t.TempDir()
 
-	mgr := NewFileWorkflowConfigManager(dirPath)
+	mgr := NewFileWorkflowConfigManager(dirPath, store)
 
 	list, err := mgr.List(ctx)
 	require.NoError(t, err)
@@ -48,7 +65,7 @@ func TestFileWorkflowConfigManager_LazyLoad(t *testing.T) {
 	require.NoError(t, err)
 
 	// New manager should load from dir
-	mgr2 := NewFileWorkflowConfigManager(dirPath)
+	mgr2 := NewFileWorkflowConfigManager(dirPath, store)
 	list2, err := mgr2.List(ctx)
 	require.NoError(t, err)
 	assert.Len(t, list2, 1)
@@ -61,10 +78,10 @@ func TestFileWorkflowConfigManager_LazyLoad(t *testing.T) {
 	assert.Equal(t, "w1", cfg.ID)
 }
 
-func TestFileWorkflowConfigManager_NameUniqueness(t *testing.T) {
+func testFileWorkflowConfigManagerNameUniqueness(t *testing.T, store *PluginStore) {
 	ctx := context.Background()
 	dirPath := t.TempDir()
-	mgr := NewFileWorkflowConfigManager(dirPath)
+	mgr := NewFileWorkflowConfigManager(dirPath, store)
 
 	err := mgr.Save(ctx, testWorkflowConfig("w1", "DuplicateName"))
 	require.NoError(t, err)
@@ -86,11 +103,11 @@ func TestFileWorkflowConfigManager_NameUniqueness(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestFileWorkflowConfigManager_Concurrency(t *testing.T) {
+func testFileWorkflowConfigManagerConcurrency(t *testing.T, store *PluginStore) {
 	ctx := context.Background()
 	dirPath := t.TempDir()
 
-	mgr := NewFileWorkflowConfigManager(dirPath)
+	mgr := NewFileWorkflowConfigManager(dirPath, store)
 
 	const count = 50
 	var wg sync.WaitGroup
@@ -111,10 +128,10 @@ func TestFileWorkflowConfigManager_Concurrency(t *testing.T) {
 	assert.Len(t, list, count)
 }
 
-func TestFileWorkflowConfigManager_Delete(t *testing.T) {
+func testFileWorkflowConfigManagerDelete(t *testing.T, store *PluginStore) {
 	ctx := context.Background()
 	dirPath := t.TempDir()
-	mgr := NewFileWorkflowConfigManager(dirPath)
+	mgr := NewFileWorkflowConfigManager(dirPath, store)
 
 	err := mgr.Save(ctx, testWorkflowConfig("d1", "DeleteMe"))
 	require.NoError(t, err)

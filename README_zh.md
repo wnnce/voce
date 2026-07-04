@@ -19,6 +19,7 @@ Voce 是一个基于 Go 开发的**个人探索项目**，用于研究如何构�
 ## ⚡ Highlights
 
 - 实时语音 AI 流水线（ASR → LLM → TTS）
+- 跨语言的 Remote Plugin 支持 (Python, Node.js)
 - 可立即打断正在进行的 LLM / TTS 生成（流式打断）
 - 数据在不同的 node 和 track 中独立处理，无阻塞
 - 内置 realtime 系统的 backpressure 与丢包策略
@@ -213,6 +214,12 @@ flow.SendPayload(mutable.ReadOnly())
 
 ---
 
+### 6. 跨语言支持 (Experimental)
+
+通过引入 **Remote Plugin** 机制，支持使用 Python 或 Node.js 编写远端插件，允许将部分业务逻辑或模型接入托管在独立的非 Go 进程中。
+
+---
+
 ## 📊 Benchmark
 
 环境：MacBook Pro M5 / 24GB RAM
@@ -259,6 +266,7 @@ flow.SendPayload(mutable.ReadOnly())
 - [网关架构设计](docs/gateway.md)
 - [接入协议](docs/protocol.md)
 - [内置插件列表](docs/plugins_list.md)
+- [远程插件开发指南](docs/remote_plugin.md)
 - [压测说明](docs/benchmark.md)
 
 ## 💡 灵感来源（Inspiration）

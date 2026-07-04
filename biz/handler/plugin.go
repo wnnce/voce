@@ -2,7 +2,6 @@ package handler
 
 import (
 	"net/http"
-	"slices"
 
 	"github.com/invopop/jsonschema"
 	"github.com/wnnce/voce/internal/engine"
@@ -11,13 +10,17 @@ import (
 )
 
 type PluginHandler struct {
+	store *engine.PluginStore
 }
 
-func NewPluginHandler() *PluginHandler {
-	return &PluginHandler{}
+func NewPluginHandler(store *engine.PluginStore) *PluginHandler {
+	return &PluginHandler{
+		store: store,
+	}
 }
 
 type PluginInfo struct {
+	Namespace   string                `json:"namespace"`
 	Name        string                `json:"name"`
 	Description string                `json:"description,omitzero"`
 	Schema      *jsonschema.Schema    `json:"schema,omitzero"`
@@ -26,12 +29,14 @@ type PluginInfo struct {
 	Ports       []engine.PortMetadata `json:"ports,omitzero"`
 }
 
-func (h *PluginHandler) ListPlugins(w http.ResponseWriter, r *http.Request) error {
-	builders := engine.GetPluginBuilders()
-	list := make([]PluginInfo, 0, len(builders))
+func (h *PluginHandler) ListPlugins(w http.ResponseWriter, _ *http.Request) error {
+	descriptors := h.store.ListPluginBuilders()
+	list := make([]PluginInfo, 0, len(descriptors))
 
-	for _, b := range builders {
+	for _, descriptor := range descriptors {
+		b := descriptor.Builder
 		list = append(list, PluginInfo{
+			Namespace:   descriptor.Namespace,
 			Name:        b.Name(),
 			Description: b.Description(),
 			Schema:      b.Schema(),
@@ -40,16 +45,6 @@ func (h *PluginHandler) ListPlugins(w http.ResponseWriter, r *http.Request) erro
 			Ports:       b.Ports(),
 		})
 	}
-
-	slices.SortFunc(list, func(a, b PluginInfo) int {
-		if a.Name < b.Name {
-			return -1
-		}
-		if a.Name > b.Name {
-			return 1
-		}
-		return 0
-	})
 
 	return httpx.JSON(w, http.StatusOK, result.SuccessData(list))
 }
