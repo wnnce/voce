@@ -69,11 +69,16 @@ func (n *loopNode) Input(data schema.ReadOnly) {
 		if ref, ok := data.(schema.RefCountable); ok {
 			ref.Release()
 		}
+		// A dropped askSignal must still release its collector slot,
+		// otherwise the asking side blocks forever.
+		finalizeDroppedAsk(data)
 		return
 	}
 	switch v := data.(type) {
 	case schema.Signal:
-		_ = syncx.SendWithContext(n.ctx, n.signalChan, v)
+		if err := syncx.SendWithContext(n.ctx, n.signalChan, v); err != nil {
+			finalizeDroppedAsk(v)
+		}
 	case schema.Payload:
 		_ = syncx.SendWithContext(n.ctx, n.payloadChan, v)
 	case schema.Audio:
@@ -138,6 +143,17 @@ func (n *loopNode) readLoop() {
 }
 
 func (n *loopNode) drainChannels() {
+	// Drain any pending signals first so that askSignals left in the buffer
+	// release their collector slots and never leave an asker blocked.
+	for {
+		select {
+		case sig := <-n.signalChan:
+			finalizeDroppedAsk(sig)
+			continue
+		default:
+		}
+		break
+	}
 	for {
 		var event schema.ReadOnly
 		select {

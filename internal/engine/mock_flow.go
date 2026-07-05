@@ -3,6 +3,7 @@ package engine
 import (
 	"github.com/wnnce/voce/internal/protocol"
 	"github.com/wnnce/voce/internal/schema"
+	"github.com/wnnce/voce/pkg/syncx"
 )
 
 // MockFlow implements the Flow interface with programmable hooks for testing purposes.
@@ -43,6 +44,14 @@ func (m *MockFlow) SendSignalToPort(port int, v schema.Signal) {
 	if m.OnSignalHook != nil {
 		m.OnSignalHook(port, v)
 	}
+}
+
+func (m *MockFlow) AskSignal(v schema.Signal) *syncx.Collector[schema.Result] {
+	return m.AskSignalToPort(0, v)
+}
+
+func (m *MockFlow) AskSignalToPort(port int, v schema.Signal) *syncx.Collector[schema.Result] {
+	return nil
 }
 
 func (m *MockFlow) SendPayload(v schema.Payload) { m.SendPayloadToPort(0, v) }

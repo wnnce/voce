@@ -54,6 +54,9 @@ func (n *schedulerNode) Input(data schema.ReadOnly) {
 		if ref, ok := data.(schema.RefCountable); ok {
 			ref.Release()
 		}
+		// A dropped askSignal must still release its collector slot,
+		// otherwise the asking side blocks forever.
+		finalizeDroppedAsk(data)
 		return
 	}
 	n.scheduler.SubmitToWorker(n.workerIdx, n, data)

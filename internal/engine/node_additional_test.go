@@ -28,10 +28,11 @@ func (f *fullMockPlugin) OnPayload(ctx context.Context, flow Flow, p schema.Payl
 	}
 }
 
-func (f *fullMockPlugin) OnSignal(ctx context.Context, flow Flow, s schema.Signal) {
+func (f *fullMockPlugin) OnSignal(ctx context.Context, flow Flow, s schema.Signal) schema.Result {
 	if f.onSignalHook != nil {
 		f.onSignalHook(ctx, flow, s)
 	}
+	return nil
 }
 
 func (f *fullMockPlugin) OnAudio(ctx context.Context, flow Flow, a schema.Audio) {

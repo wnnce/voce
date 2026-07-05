@@ -31,7 +31,7 @@ type (
 		OnPause(ctx context.Context)
 		OnResume(ctx context.Context, flow Flow)
 		OnStop()
-		OnSignal(ctx context.Context, flow Flow, signal schema.Signal)
+		OnSignal(ctx context.Context, flow Flow, signal schema.Signal) schema.Result
 		OnPayload(ctx context.Context, flow Flow, payload schema.Payload)
 		OnAudio(ctx context.Context, flow Flow, audio schema.Audio)
 		OnVideo(ctx context.Context, flow Flow, video schema.Video)
@@ -62,8 +62,9 @@ func (b *BuiltinPlugin) OnResume(_ context.Context, _ Flow) {}
 
 func (b *BuiltinPlugin) OnStop() {}
 
-func (b *BuiltinPlugin) OnSignal(_ context.Context, flow Flow, signal schema.Signal) {
+func (b *BuiltinPlugin) OnSignal(_ context.Context, flow Flow, signal schema.Signal) schema.Result {
 	flow.SendSignal(signal)
+	return nil
 }
 
 func (b *BuiltinPlugin) OnPayload(_ context.Context, flow Flow, payload schema.Payload) {

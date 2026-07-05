@@ -259,12 +259,12 @@ func (b *MultiTrackPlugin) OnStop() {
 	b.plugin.OnStop()
 }
 
-func (b *MultiTrackPlugin) OnSignal(ctx context.Context, flow Flow, signal schema.Signal) {
+func (b *MultiTrackPlugin) OnSignal(ctx context.Context, flow Flow, signal schema.Signal) schema.Result {
 	name := signal.Name()
 	interruptTrack(b.payloadTrack, name)
 	interruptTrack(b.audioTrack, name)
 	interruptTrack(b.videoTrack, name)
-	b.plugin.OnSignal(ctx, flow, signal)
+	return b.plugin.OnSignal(ctx, flow, signal)
 }
 
 func interruptTrack[T schema.ReadOnly](s *track[T], signalName string) {

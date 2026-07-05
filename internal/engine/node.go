@@ -11,17 +11,45 @@ import (
 	"github.com/wnnce/voce/internal/metadata"
 	"github.com/wnnce/voce/internal/protocol"
 	"github.com/wnnce/voce/internal/schema"
+	"github.com/wnnce/voce/pkg/syncx"
 )
 
 const (
 	singleHandlerDeadline = 100
 )
 
+// askSignal wraps a schema.Signal together with a result Collector.
+//
+// It is the transport-layer envelope used by AskSignal: because it embeds the
+// schema.Signal interface it satisfies schema.Signal itself and can travel
+// through the existing signal channel / scheduler queue unchanged.
+//
+// The receiving node unwraps it in processEvent and hands the bare Signal to
+// OnSignal, so if a downstream plugin forwards the signal further (SendSignal),
+// it forwards the plain signal and the collector does NOT propagate. Aggregation
+// stops at the direct downstream nodes; deeper aggregation is each node's own
+// responsibility via its own AskSignal call.
+type askSignal struct {
+	schema.Signal
+	collector *syncx.Collector[schema.Result]
+}
+
 type routeTable struct {
 	signals  []Node
 	payloads []Node
 	audios   []Node
 	videos   []Node
+}
+
+// finalizeDroppedAsk closes an askSignal's collector slot when the signal is
+// dropped before reaching OnSignal (node stopped, context canceled, queue
+// drained on shutdown, or enqueue failure). Without this the asking side would
+// block forever waiting for a result that will never arrive. It is a no-op for
+// plain signals and other event types.
+func finalizeDroppedAsk(data schema.ReadOnly) {
+	if as, ok := data.(*askSignal); ok {
+		_ = as.collector.Done()
+	}
 }
 
 // Node defines the polymorphic runtime instance of a plugin in the workflow graph.
@@ -158,6 +186,38 @@ func (n *baseNode) SendSignalToPort(port int, value schema.Signal) {
 	}
 }
 
+func (n *baseNode) AskSignal(value schema.Signal) *syncx.Collector[schema.Result] {
+	return n.askSignal(n.table.signals, value)
+}
+
+func (n *baseNode) AskSignalToPort(port int, value schema.Signal) *syncx.Collector[schema.Result] {
+	if port < 0 || port >= MaxPortCount {
+		return syncx.NewCollector[schema.Result](0)
+	}
+	return n.askSignal(n.portTable[port].signals, value)
+}
+
+// askSignal fans the signal out to the given direct downstream nodes, wrapping
+// it so each downstream's OnSignal result is collected. The returned collector
+// closes once every downstream has reported (via processEvent's deferred Done),
+// even if some downstreams are stopped or panic.
+//
+// NOTE: In worker-pool scheduler mode the returned collector MUST be consumed
+// asynchronously (from a separate goroutine), never blocked-on inside the same
+// OnSignal call stack, otherwise the worker is occupied and cannot execute the
+// downstream tasks, causing a deadlock. Asynchronous consumption is the
+// recommended pattern in both scheduler modes.
+func (n *baseNode) askSignal(downstream []Node, value schema.Signal) *syncx.Collector[schema.Result] {
+	if len(downstream) == 0 || n.ctx.Err() != nil || !n.running.Load() {
+		return syncx.NewCollector[schema.Result](0)
+	}
+	collector := syncx.NewCollector[schema.Result](len(downstream))
+	for _, next := range downstream {
+		next.Input(&askSignal{Signal: value, collector: collector})
+	}
+	return collector
+}
+
 func (n *baseNode) SendPayload(value schema.Payload) {
 	if len(n.table.payloads) == 0 || n.ctx.Err() != nil || !n.running.Load() {
 		return
@@ -260,22 +320,23 @@ func (n *baseNode) processControl(ctrl controlType) {
 	}
 }
 
-func (n *baseNode) processEvent(value schema.ReadOnly, useDeadline bool) {
+// processEvent dispatches a single event to the appropriate plugin handler.
+//
+// Signal and Payload no longer run under a 100ms deadline context: the deadline
+// is only a soft SLA now, surfaced as a slow-handler warning log after the fact.
+// This lets AskSignal downstreams perform real work before returning a Result
+// without being canceled mid-flight.
+//
+// When the event is an *askSignal, the bare Signal is handed to OnSignal and the
+// returned Result (if non-nil) is pushed into the collector. Done is always
+// invoked via defer, so the asking side's collector closes even if the handler
+// panics.
+func (n *baseNode) processEvent(value schema.ReadOnly, _ bool) {
 	if value == nil {
 		return
 	}
 
 	start := time.Now()
-	var (
-		currentCtx context.Context
-		cancel     context.CancelFunc
-	)
-
-	if useDeadline {
-		currentCtx, cancel = context.WithDeadline(n.ctx, start.Add(singleHandlerDeadline*time.Millisecond))
-	} else {
-		currentCtx = n.ctx
-	}
 
 	func() {
 		defer func() {
@@ -284,9 +345,6 @@ func (n *baseNode) processEvent(value schema.ReadOnly, useDeadline bool) {
 			}
 			if err := recover(); err != nil {
 				slog.ErrorContext(n.ctx, "plugin panic recovered", "node", n.name, "error", err)
-			}
-			if cancel != nil {
-				cancel()
 			}
 			elapsed := time.Since(start)
 			if elapsed > singleHandlerDeadline*time.Millisecond {
@@ -299,14 +357,19 @@ func (n *baseNode) processEvent(value schema.ReadOnly, useDeadline bool) {
 			}
 		}()
 		switch v := value.(type) {
+		case *askSignal:
+			defer func() { _ = v.collector.Done() }()
+			if result := n.plugin.OnSignal(n.ctx, n, v.Signal); result != nil {
+				_ = v.collector.Put(result)
+			}
 		case schema.Signal:
-			n.plugin.OnSignal(currentCtx, n, v)
+			n.plugin.OnSignal(n.ctx, n, v)
 		case schema.Payload:
-			n.plugin.OnPayload(currentCtx, n, v)
+			n.plugin.OnPayload(n.ctx, n, v)
 		case schema.Audio:
-			n.plugin.OnAudio(currentCtx, n, v)
+			n.plugin.OnAudio(n.ctx, n, v)
 		case schema.Video:
-			n.plugin.OnVideo(currentCtx, n, v)
+			n.plugin.OnVideo(n.ctx, n, v)
 		}
 	}()
 }

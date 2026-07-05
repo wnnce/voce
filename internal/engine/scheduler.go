@@ -92,6 +92,9 @@ func (w *worker) drain() {
 		if ref, ok := task.event.(schema.RefCountable); ok {
 			ref.Release()
 		}
+		// A drained askSignal must still release its collector slot,
+		// otherwise the asking side blocks forever.
+		finalizeDroppedAsk(task.event)
 	}
 }
 
@@ -141,7 +144,9 @@ func (s *Scheduler) SubmitToWorker(workerIdx int, n Node, data schema.ReadOnly) 
 	task := Task{node: n, event: data}
 
 	if _, ok := data.(schema.Signal); ok {
-		_ = syncx.SendWithContext(s.ctx, w.highPriorityCh, task)
+		if err := syncx.SendWithContext(s.ctx, w.highPriorityCh, task); err != nil {
+			finalizeDroppedAsk(data)
+		}
 		return
 	}
 	if _, ok := data.(schema.Payload); ok {

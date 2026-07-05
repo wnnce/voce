@@ -3,12 +3,16 @@ package engine
 import (
 	"github.com/wnnce/voce/internal/protocol"
 	"github.com/wnnce/voce/internal/schema"
+	"github.com/wnnce/voce/pkg/syncx"
 )
 
 type Flow interface {
 	Publisher
 	SendSignal(value schema.Signal)
 	SendSignalToPort(port int, value schema.Signal)
+
+	AskSignal(value schema.Signal) *syncx.Collector[schema.Result]
+	AskSignalToPort(port int, value schema.Signal) *syncx.Collector[schema.Result]
 
 	SendPayload(value schema.Payload)
 	SendPayloadToPort(port int, value schema.Payload)

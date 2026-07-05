@@ -16,7 +16,7 @@ func NewPlugin(_ engine.EmptyPluginConfig) engine.Plugin {
 	return &Plugin{}
 }
 
-func (e *Plugin) OnSignal(ctx context.Context, flow engine.Flow, signal schema.Signal) {
+func (e *Plugin) OnSignal(ctx context.Context, flow engine.Flow, signal schema.Signal) schema.Result {
 	var packetType protocol.PacketType
 	switch signal.Name() {
 	case schema.SignalInterrupter:
@@ -30,9 +30,10 @@ func (e *Plugin) OnSignal(ctx context.Context, flow engine.Flow, signal schema.S
 	case schema.SignalAgentSpeechEnd:
 		packetType = protocol.TypeAgentSpeechEnd
 	default:
-		return
+		return nil
 	}
 	flow.Publish(packetType, nil)
+	return nil
 }
 
 func (e *Plugin) OnAudio(ctx context.Context, flow engine.Flow, audio schema.Audio) {

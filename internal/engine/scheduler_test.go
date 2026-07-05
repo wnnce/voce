@@ -18,10 +18,11 @@ type schedulerMockPlugin struct {
 	onAudio  func(ctx context.Context, flow Flow, audio schema.Audio)
 }
 
-func (m *schedulerMockPlugin) OnSignal(ctx context.Context, flow Flow, signal schema.Signal) {
+func (m *schedulerMockPlugin) OnSignal(ctx context.Context, flow Flow, signal schema.Signal) schema.Result {
 	if m.onSignal != nil {
 		m.onSignal(ctx, flow, signal)
 	}
+	return nil
 }
 
 func (m *schedulerMockPlugin) OnAudio(ctx context.Context, flow Flow, audio schema.Audio) {

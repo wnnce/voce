@@ -31,10 +31,11 @@ func (m *MockSlowPlugin) OnAudio(ctx context.Context, flow Flow, audio schema.Au
 	}
 }
 
-func (m *MockSlowPlugin) OnSignal(ctx context.Context, flow Flow, signal schema.Signal) {
+func (m *MockSlowPlugin) OnSignal(ctx context.Context, flow Flow, signal schema.Signal) schema.Result {
 	if m.OnSignalFunc != nil {
 		m.OnSignalFunc(ctx, flow, signal)
 	}
+	return nil
 }
 
 func TestPluginReflectName(t *testing.T) {

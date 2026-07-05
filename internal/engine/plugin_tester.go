@@ -107,6 +107,17 @@ func (et *PluginTester) InjectSignal(signal schema.Signal) *PluginTester {
 	return et
 }
 
+// ExecuteSignal runs the plugin's OnSignal handler and returns its Result.
+//
+// Unlike the chainable Inject* helpers, this is a terminal call: it hands back
+// the Result so tests can assert on it (e.g. what a command-like plugin would
+// return to an AskSignal caller).
+func (et *PluginTester) ExecuteSignal(signal schema.Signal) schema.Result {
+	et.t.Helper()
+	et.pingActivity()
+	return et.ext.OnSignal(et.ctx, et.mock, signal)
+}
+
 func (et *PluginTester) InjectPayload(payload schema.Payload) *PluginTester {
 	et.t.Helper()
 	et.pingActivity() // Keep pingActivity for activity tracking

@@ -42,10 +42,11 @@ func (m *mockPlugin) OnAudio(ctx context.Context, flow Flow, audio schema.Audio)
 	}
 }
 
-func (m *mockPlugin) OnSignal(ctx context.Context, flow Flow, signal schema.Signal) {
+func (m *mockPlugin) OnSignal(ctx context.Context, flow Flow, signal schema.Signal) schema.Result {
 	if m.onSignal != nil {
 		m.onSignal(signal)
 	}
+	return nil
 }
 
 func TestNode_Lifecycle(t *testing.T) {

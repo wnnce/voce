@@ -44,7 +44,7 @@ func (e *Plugin) OnStop() {
 	slog.InfoContext(e.ctx, "Caption extension onStop")
 }
 
-func (e *Plugin) OnSignal(ctx context.Context, flow engine.Flow, signal schema.Signal) {
+func (e *Plugin) OnSignal(ctx context.Context, flow engine.Flow, signal schema.Signal) schema.Result {
 	switch signal.Name() {
 	case schema.SignalInterrupter, schema.SignalUserSpeechStart:
 		e.builder.Reset()
@@ -52,6 +52,7 @@ func (e *Plugin) OnSignal(ctx context.Context, flow engine.Flow, signal schema.S
 		e.pendingAssistantFinal = false
 	}
 	flow.SendSignal(signal)
+	return nil
 }
 
 func (e *Plugin) OnPayload(ctx context.Context, flow engine.Flow, payload schema.Payload) {

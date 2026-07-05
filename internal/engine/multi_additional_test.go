@@ -283,8 +283,8 @@ func (v *videoCaptureMock) OnPayload(ctx context.Context, flow Flow, p schema.Pa
 	v.inner.OnPayload(ctx, flow, p)
 }
 
-func (v *videoCaptureMock) OnSignal(ctx context.Context, flow Flow, s schema.Signal) {
-	v.inner.OnSignal(ctx, flow, s)
+func (v *videoCaptureMock) OnSignal(ctx context.Context, flow Flow, s schema.Signal) schema.Result {
+	return v.inner.OnSignal(ctx, flow, s)
 }
 
 func (v *videoCaptureMock) OnVideo(_ context.Context, _ Flow, _ schema.Video) {

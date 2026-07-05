@@ -82,11 +82,12 @@ func (p *Plugin) OnStop() {
 	}
 }
 
-func (p *Plugin) OnSignal(ctx context.Context, flow engine.Flow, signal schema.Signal) {
+func (p *Plugin) OnSignal(ctx context.Context, flow engine.Flow, signal schema.Signal) schema.Result {
 	if signal.Name() == schema.SignalInterrupter {
 		p.streamer.Reset()
 	}
 	flow.SendSignal(signal)
+	return nil
 }
 
 func (p *Plugin) OnPayload(ctx context.Context, flow engine.Flow, payload schema.Payload) {
