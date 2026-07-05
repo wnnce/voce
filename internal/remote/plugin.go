@@ -171,7 +171,7 @@ func (p *Plugin) OnStop() {
 		"plugin", p.metadata.Name)
 }
 
-func (p *Plugin) OnSignal(ctx context.Context, flow engine.Flow, signal schema.Signal) {
+func (p *Plugin) OnSignal(ctx context.Context, flow engine.Flow, signal schema.Signal) schema.Result {
 	p.callRemoteSchemaEvent(ctx, "signal", signal.Name(), signal, func(props []byte) *pluginv1.RuntimeMessage {
 		return &pluginv1.RuntimeMessage{
 			Type: pluginv1.RuntimeMessageType_RUNTIME_MESSAGE_TYPE_SIGNAL,
@@ -181,6 +181,7 @@ func (p *Plugin) OnSignal(ctx context.Context, flow engine.Flow, signal schema.S
 			}},
 		}
 	})
+	return nil
 }
 
 func (p *Plugin) OnPayload(ctx context.Context, flow engine.Flow, payload schema.Payload) {
