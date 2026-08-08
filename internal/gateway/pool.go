@@ -37,7 +37,7 @@ func NewConnectionPool(
 	}
 
 	for i := 0; i < size; i++ {
-		conn, err := NewConnection(ctx, engine, machineID, address, i, dispatcher)
+		conn, err := NewConnection(ctx, engine, machineID, address, dispatcher)
 		if err != nil {
 			p.Shutdown()
 			return nil, err

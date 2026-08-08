@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/url"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -44,7 +43,6 @@ type Connection struct {
 	state      atomic.Int32
 	socket     atomic.Pointer[websocket.Conn]
 	dispatcher MessageDispatcher
-	slot       int
 }
 
 // NewConnection creates and initializes a new pool connection.
@@ -52,7 +50,6 @@ func NewConnection(
 	ctx context.Context,
 	engine *nbhttp.Engine,
 	machineID, address string,
-	slot int,
 	dispatcher MessageDispatcher,
 ) (*Connection, error) {
 	u, err := url.Parse("ws://" + address + "/pool")
@@ -63,7 +60,6 @@ func NewConnection(
 		machineID:  machineID,
 		ctx:        ctx,
 		addr:       u,
-		slot:       slot,
 		dispatcher: dispatcher,
 	}
 	if engine == nil {
@@ -88,9 +84,6 @@ func NewConnection(
 
 // Connect initiates the WebSocket handshake.
 func (c *Connection) Connect() error {
-	q := c.addr.Query()
-	q.Set("slot", strconv.Itoa(c.slot))
-	c.addr.RawQuery = q.Encode()
 	slog.Info("gateway dialing machine pool", "machineID", c.machineID, "url", c.addr.String())
 	//nolint:bodyclose // nbio
 	_, _, err := c.dialer.DialContext(c.ctx, c.addr.String(), nil)
@@ -136,7 +129,7 @@ func (c *Connection) OnClose(socket *websocket.Conn, err error) {
 }
 
 func (c *Connection) OnOpen(socket *websocket.Conn) {
-	slog.Info("gateway machine pool connection opened", "machineID", c.machineID, "slot", c.slot)
+	slog.Info("gateway machine pool connection opened", "machineID", c.machineID)
 	c.state.Store(int32(protocol.ConnectionActive))
 	c.socket.Store(socket)
 }
