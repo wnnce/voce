@@ -99,7 +99,7 @@ func initBaseApplication(ctx context.Context, cfg config.VoceBootstrap) (*appBas
 }
 
 func initGatewayMode(base *appBase, cfg config.VoceBootstrap) {
-	cm := machine.NewConnectionManager(base.sm, cfg.Server.PoolSize)
+	cm := machine.NewConnectionManager(base.sm)
 	base.container.Machine = handler.NewMachineHandler(cm)
 	base.container.Session = handler.NewGatewaySessionHandler(base.sm, cm)
 }

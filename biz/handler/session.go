@@ -145,7 +145,12 @@ func (h *SessionHandler) sessionWriteLoop(session *engine.Session) {
 			if !ok {
 				return
 			}
-			if err := conn.Write(session.Key, packet); err != nil {
+			if conn.State() != protocol.ConnectionActive {
+				conn = h.cm.Select(session.Key)
+			}
+			if conn == nil {
+				slog.ErrorContext(session.Workflow.Context(), "failed to select connection", "session_id", session.Key.String())
+			} else if err := conn.Write(session.Key, packet); err != nil {
 				slog.Error("failed to write packet to connection", "error", err, "session_id", session.Key.String())
 			}
 			session.UpdateActivity()
