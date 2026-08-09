@@ -52,6 +52,22 @@ func NewConnection(
 	machineID, address string,
 	dispatcher MessageDispatcher,
 ) (*Connection, error) {
+	conn, err := newPoolConnection(ctx, engine, machineID, address, dispatcher)
+	if err != nil {
+		return nil, err
+	}
+	if err = conn.Connect(); err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
+func newPoolConnection(
+	ctx context.Context,
+	engine *nbhttp.Engine,
+	machineID, address string,
+	dispatcher MessageDispatcher,
+) (*Connection, error) {
 	u, err := url.Parse("ws://" + address + "/pool")
 	if err != nil {
 		return nil, ErrInvalidPoolAddress
@@ -76,9 +92,6 @@ func NewConnection(
 	}
 	conn.dialer = dialer
 	conn.state.Store(int32(protocol.ConnectionConnecting))
-	if err = conn.Connect(); err != nil {
-		return nil, err
-	}
 	return conn, nil
 }
 
@@ -130,7 +143,10 @@ func (c *Connection) OnClose(socket *websocket.Conn, err error) {
 
 func (c *Connection) OnOpen(socket *websocket.Conn) {
 	slog.Info("gateway machine pool connection opened", "machineID", c.machineID)
-	c.state.Store(int32(protocol.ConnectionActive))
+	if !c.state.CompareAndSwap(int32(protocol.ConnectionConnecting), int32(protocol.ConnectionActive)) {
+		_ = socket.Close()
+		return
+	}
 	c.socket.Store(socket)
 }
 

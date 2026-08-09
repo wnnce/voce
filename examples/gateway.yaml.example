@@ -3,7 +3,14 @@ gateway:
   environment: dev
   host: 0.0.0.0
   port: 7001
-  pool_size: 16
+  pool_mode: dynamic
+  pool_size: 16 # Only used when pool_mode is fixed.
+  pool_min_connections: 1
+  pool_target_sessions_per_connection: 16
+  pool_max_sessions_per_connection: 64 # Hard safety limit.
+  pool_max_connections: 128 # Use 0 for no additional limit.
+  pool_idle_timeout: 30s
+  pool_cleanup_interval: 5s
   suspend_timeout: 30s
   cleanup_interval: 10s
   heartbeat_interval: 5s

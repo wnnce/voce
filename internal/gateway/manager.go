@@ -189,7 +189,7 @@ func (m *MachineManager) AcquireMachine(id, host string, port int) (*Machine, er
 		return existing, nil
 	}
 
-	machine, err := NewMachine(m.ctx, m.engine, id, host, port, m.config.PoolSize, m.sm.DispatchMessage)
+	machine, err := NewMachine(m.ctx, m.engine, id, host, port, m.config, m.sm.DispatchMessage)
 	if err != nil {
 		return nil, errcode.NewInternal(err.Error())
 	}

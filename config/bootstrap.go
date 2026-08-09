@@ -57,12 +57,19 @@ type PluginServerConfig struct {
 
 // GatewayServerConfig is the configuration for the Gateway service itself
 type GatewayServerConfig struct {
-	CommonConfig      `yaml:",inline"`
-	NetworkConfig     `yaml:",inline"`
-	PoolSize          int           `json:"pool_size" yaml:"pool_size"`
-	SuspendTimeout    time.Duration `json:"suspend_timeout" yaml:"suspend_timeout"`
-	CleanupInterval   time.Duration `json:"cleanup_interval" yaml:"cleanup_interval"`
-	HeartbeatInterval time.Duration `json:"heartbeat_interval" yaml:"heartbeat_interval"`
+	CommonConfig                    `yaml:",inline"`
+	NetworkConfig                   `yaml:",inline"`
+	PoolMode                        string        `json:"pool_mode" yaml:"pool_mode"`
+	PoolSize                        int           `json:"pool_size" yaml:"pool_size"`
+	PoolMinConnections              int           `json:"pool_min_connections" yaml:"pool_min_connections"`
+	PoolTargetSessionsPerConnection int           `json:"pool_target_sessions_per_connection" yaml:"pool_target_sessions_per_connection"`
+	PoolMaxSessionsPerConnection    int           `json:"pool_max_sessions_per_connection" yaml:"pool_max_sessions_per_connection"`
+	PoolMaxConnections              int           `json:"pool_max_connections" yaml:"pool_max_connections"`
+	PoolIdleTimeout                 time.Duration `json:"pool_idle_timeout" yaml:"pool_idle_timeout"`
+	PoolCleanupInterval             time.Duration `json:"pool_cleanup_interval" yaml:"pool_cleanup_interval"`
+	SuspendTimeout                  time.Duration `json:"suspend_timeout" yaml:"suspend_timeout"`
+	CleanupInterval                 time.Duration `json:"cleanup_interval" yaml:"cleanup_interval"`
+	HeartbeatInterval               time.Duration `json:"heartbeat_interval" yaml:"heartbeat_interval"`
 }
 
 // VoceBootstrap is the entry point for Voce application configuration

@@ -178,8 +178,8 @@ func (h *Handler) HandleSessionCreate(w http.ResponseWriter, r *http.Request) er
 
 		sid := res.Data["session_id"]
 		key, _ := parseSessionKey(sid)
-		connection := machine.Pool.Select(key)
-		session := NewSession(key, connection, machine)
+		binding := machine.Pool.Bind(key)
+		session := NewSession(key, binding, machine)
 		h.sm.Store(session)
 		machine.AddSession(key)
 		slog.Info("session registered on gateway", "id", sid, "machine", machine.ID, "addr", machine.Address())
