@@ -32,7 +32,7 @@ func InitApplication(ctx context.Context, cfg config.VoceBootstrap) (route.AppCo
 	}
 
 	if cfg.Server.Mode == "gateway" {
-		initGatewayMode(base, cfg)
+		initGatewayMode(base)
 	} else {
 		initStandaloneMode(base)
 	}
@@ -98,7 +98,7 @@ func initBaseApplication(ctx context.Context, cfg config.VoceBootstrap) (*appBas
 	return base, nil
 }
 
-func initGatewayMode(base *appBase, cfg config.VoceBootstrap) {
+func initGatewayMode(base *appBase) {
 	cm := machine.NewConnectionManager(base.sm)
 	base.container.Machine = handler.NewMachineHandler(cm)
 	base.container.Session = handler.NewGatewaySessionHandler(base.sm, cm)
