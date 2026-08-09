@@ -14,25 +14,18 @@ type MessageHandler func(key protocol.SessionKey, packet *protocol.Packet)
 // Connection represents an inbound pool connection from the gateway to the machine.
 type Connection struct {
 	gws.BuiltinEventHandler
+	manager *ConnectionManager
 	socket  atomic.Pointer[gws.Conn]
 	state   atomic.Int32
 	handle  MessageHandler
-	onOpen  func(*Connection)
-	onClose func(*Connection)
 }
 
 // NewConnection creates a new pool connection instance.
-func NewConnection(handle MessageHandler) *Connection {
+func NewConnection(manager *ConnectionManager, handle MessageHandler) *Connection {
 	return &Connection{
-		handle: handle,
+		manager: manager,
+		handle:  handle,
 	}
-}
-
-// SetLifecycle configures callbacks that run after this connection opens or closes.
-// It must be called before ReadLoop starts.
-func (c *Connection) SetLifecycle(onOpen, onClose func(*Connection)) {
-	c.onOpen = onOpen
-	c.onClose = onClose
 }
 
 func (c *Connection) Write(key protocol.SessionKey, packet *protocol.Packet) error {
@@ -51,16 +44,16 @@ func (c *Connection) OnOpen(socket *gws.Conn) {
 	slog.Info("machine pool connection established")
 	c.socket.Store(socket)
 	c.state.Store(int32(protocol.ConnectionActive))
-	if c.onOpen != nil {
-		c.onOpen(c)
+	if c.manager != nil {
+		c.manager.Store(c)
 	}
 }
 
 func (c *Connection) OnClose(_ *gws.Conn, err error) {
 	c.state.Store(int32(protocol.ConnectionClosed))
 	c.socket.Store(nil)
-	if c.onClose != nil {
-		c.onClose(c)
+	if c.manager != nil {
+		c.manager.Remove(c)
 	}
 }
 

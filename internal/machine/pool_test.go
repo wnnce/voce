@@ -109,9 +109,23 @@ func TestConnectionManagerReleaseAndRemove(t *testing.T) {
 }
 
 func activeTestConnection() *Connection {
-	conn := NewConnection(nil)
+	conn := NewConnection(nil, nil)
 	conn.state.Store(int32(protocol.ConnectionActive))
 	return conn
+}
+
+func TestConnectionLifecycleUpdatesManager(t *testing.T) {
+	m := newTestConnectionManager()
+	conn := NewConnection(m, nil)
+
+	conn.OnOpen(nil)
+	assert.Contains(t, m.connections, conn)
+
+	conn.OnClose(nil, nil)
+	assert.NotContains(t, m.connections, conn)
+
+	conn.OnClose(nil, nil)
+	assert.NotContains(t, m.connections, conn)
 }
 
 func newTestConnectionManager() *ConnectionManager {

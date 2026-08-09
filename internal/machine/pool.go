@@ -49,9 +49,7 @@ func NewConnectionManager(sm *engine.SessionManager) *ConnectionManager {
 
 // NewConnection creates a connection whose lifecycle is managed by this pool.
 func (m *ConnectionManager) NewConnection() *Connection {
-	conn := NewConnection(m.handleMessage)
-	conn.SetLifecycle(m.Store, m.Remove)
-	return conn
+	return NewConnection(m, m.handleMessage)
 }
 
 // Store adds an active connection to the allocation heap. Storing the same
