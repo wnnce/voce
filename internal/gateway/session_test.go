@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/wnnce/voce/internal/protocol"
 	"github.com/wnnce/voce/pkg/syncx"
 )
@@ -22,6 +23,33 @@ func TestSessionManagerDeleteUnbindsPool(t *testing.T) {
 	sm.Store(NewSession(key, newSessionBinding(nil), machine))
 	sm.Delete(key)
 
+	assert.Equal(t, []protocol.SessionKey{key}, pool.unbound)
+	assert.Empty(t, machine.sessions)
+}
+
+func TestSessionManagerDispatchCloseCleansGatewayResources(t *testing.T) {
+	pool := &testDataConnectionPool{}
+	key := testSessionKey(2)
+	machine := &Machine{
+		Pool:     pool,
+		sessions: map[protocol.SessionKey]struct{}{key: {}},
+	}
+	sm := &SessionManager{
+		shards: syncx.NewShardedMap[protocol.SessionKey, *Session](64, sessionHash),
+	}
+	session := NewSession(key, newSessionBinding(nil), machine)
+	session.state.Store(int32(SessionReady))
+	sm.Store(session)
+
+	packet := protocol.AcquirePacket()
+	defer protocol.ReleasePacket(packet)
+	packet.Type = protocol.TypeClose
+	data := append(append([]byte(nil), packet.Header()...), packet.Payload...)
+	NewHandler(nil, sm).sm.DispatchMessage(key, data)
+
+	assert.Equal(t, SessionClosed, session.State())
+	_, exists := sm.Load(key)
+	require.False(t, exists)
 	assert.Equal(t, []protocol.SessionKey{key}, pool.unbound)
 	assert.Empty(t, machine.sessions)
 }

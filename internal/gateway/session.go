@@ -286,13 +286,13 @@ func (m *SessionManager) DispatchMessage(key protocol.SessionKey, data []byte) {
 		return
 	}
 	if packet.Type == protocol.TypeClose {
-		// If the pod notifies the gateway to close the session, we explicitly close the client
-		// connection and update the state to SessionClosed. This prevents m.Delete(key) from
-		// triggering s.Close(), which would send an unnecessary loopback Close packet back to the pod.
+		// Mark the session terminal before closing the client socket. Its close callback must
+		// not treat this machine-initiated termination as a reconnectable disconnect and
+		// send a late Pause packet back to the machine.
+		session.state.Store(int32(SessionClosed))
 		if session.client != nil {
 			_ = session.client.Close()
 		}
-		session.state.Store(int32(SessionClosed))
 		m.Delete(key)
 	} else {
 		if session.State() != SessionReady || session.client == nil {
