@@ -66,6 +66,7 @@ func NewSession(key protocol.SessionKey, binding *SessionBinding, machine *Machi
 		machine:   machine,
 		createdAt: time.Now(),
 	}
+	s.state.Store(int32(SessionIdle))
 	s.lastActiveAt.Store(time.Now().UnixMilli())
 	return s
 }

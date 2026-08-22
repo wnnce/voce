@@ -18,6 +18,12 @@ import (
 
 type MessageDispatcher func(key protocol.SessionKey, data []byte)
 
+// ConnectionObserver receives data-plane connection lifecycle changes.
+type ConnectionObserver interface {
+	OnConnectionOpen(*Connection)
+	OnConnectionClose(*Connection)
+}
+
 var (
 	ErrConnectionNotActive = errors.New("connection is not active")
 	ErrNilNBHTTPEngine     = errors.New("nbhttp engine is nil")
@@ -43,23 +49,7 @@ type Connection struct {
 	state      atomic.Int32
 	socket     atomic.Pointer[websocket.Conn]
 	dispatcher MessageDispatcher
-}
-
-// NewConnection creates and initializes a new pool connection.
-func NewConnection(
-	ctx context.Context,
-	engine *nbhttp.Engine,
-	machineID, address string,
-	dispatcher MessageDispatcher,
-) (*Connection, error) {
-	conn, err := newPoolConnection(ctx, engine, machineID, address, dispatcher)
-	if err != nil {
-		return nil, err
-	}
-	if err = conn.Connect(); err != nil {
-		return nil, err
-	}
-	return conn, nil
+	observer   ConnectionObserver
 }
 
 func newPoolConnection(
@@ -67,6 +57,7 @@ func newPoolConnection(
 	engine *nbhttp.Engine,
 	machineID, address string,
 	dispatcher MessageDispatcher,
+	observer ConnectionObserver,
 ) (*Connection, error) {
 	u, err := url.Parse("ws://" + address + "/pool")
 	if err != nil {
@@ -77,6 +68,7 @@ func newPoolConnection(
 		ctx:        ctx,
 		addr:       u,
 		dispatcher: dispatcher,
+		observer:   observer,
 	}
 	if engine == nil {
 		return nil, ErrNilNBHTTPEngine
@@ -138,6 +130,9 @@ func (c *Connection) OnClose(socket *websocket.Conn, err error) {
 		return
 	}
 	c.socket.Store(nil)
+	if c.observer != nil {
+		c.observer.OnConnectionClose(c)
+	}
 	go c.reconnectLoop()
 }
 
@@ -148,19 +143,22 @@ func (c *Connection) OnOpen(socket *websocket.Conn) {
 		return
 	}
 	c.socket.Store(socket)
+	if c.observer != nil {
+		c.observer.OnConnectionOpen(c)
+	}
 }
 
 func (c *Connection) Close() {
-	if c.State() == protocol.ConnectionClosed {
+	if protocol.ConnectionState(c.state.Swap(int32(protocol.ConnectionClosed))) == protocol.ConnectionClosed {
 		return
 	}
-	c.state.Store(int32(protocol.ConnectionClosed))
 	socket := c.socket.Load()
 	if socket != nil {
-		if err := socket.Close(); err != nil {
-
-		}
+		_ = socket.Close()
 		c.socket.Store(nil)
+	}
+	if c.observer != nil {
+		c.observer.OnConnectionClose(c)
 	}
 }
 

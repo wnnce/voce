@@ -260,6 +260,9 @@ func (h *Handler) HandleRealtime(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	if !session.Acquire() {
+		return errcode.New(http.StatusConflict, http.StatusConflict, "session is already connected")
+	}
 
 	upgrader := websocket.NewUpgrader()
 	upgrader.OnOpen(session.OnClientOpen)
@@ -267,6 +270,7 @@ func (h *Handler) HandleRealtime(w http.ResponseWriter, r *http.Request) error {
 	upgrader.OnClose(session.OnClientClose)
 	upgrader.SetPingHandler(session.OnClientPing)
 	if _, err = upgrader.Upgrade(w, r, nil); err != nil {
+		session.Release()
 		slog.Error("upgrade realtime client socket failed", "session", chi.URLParam(r, "id"), "error", err)
 		return errcode.NewInternal(err.Error())
 	}
