@@ -47,8 +47,8 @@ func BenchmarkDynamicConnectionPoolBindUnbindParallel(b *testing.B) {
 	}
 }
 
-func newBenchmarkConnectionPool(iterations, connectionCount int) *dynamicConnectionPool {
-	p := newDynamicConnectionPool(context.Background(), nil, "machine", "127.0.0.1:7001", ConnectionPoolConfig{
+func newBenchmarkConnectionPool(iterations, connectionCount int) *ConnectionPool {
+	p := newConnectionPool(context.Background(), nil, "machine", "127.0.0.1:7001", ConnectionPoolConfig{
 		MaxSessionsPerConnection: iterations + connectionCount + 1,
 		MaxConnections:           connectionCount,
 		CleanupInterval:          time.Hour,

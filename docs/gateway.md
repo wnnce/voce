@@ -31,7 +31,7 @@
 *   **流量分发 (Load Balancing)**：根据后端节点的负载情况，将新创建的会话分配到最合适的 Pod。
 *   **会话路由 (Session Routing)**：维护 `SessionID -> Machine` 的映射，确保特定的会话始终路由到正确的后端。
 *   **连接池复用 (Connection Pooling)**：网关与每个 Pod 建立持久的连接池，避免了为每个用户连接都建立独立底层链路的开销。
-*   **状态感知 (Health Mastery)**：实时感知 Pod 的在线、挂起、下线状态，处理 Pod 意外崩溃时的会话恢复场景。
+*   **状态感知 (Health Mastery)**：实时感知 Pod 的在线、挂起、下线状态；在重连窗口内保留会话，心跳超时后清理关联会话。
 
 ---
 
@@ -43,7 +43,7 @@
 *   **缓冲机制**：机器处于 `Suspended` 状态时，网关会保持现有的 Session 不释放，等待 Pod 重连或超时清理。
 
 ### 数据连接池 (Data Plane)
-网关与每个注册的 Machine 维护独立的 **Data Connection Pool**。当前默认使用动态连接池；固定大小的连接池仍作为兼容模式保留。
+网关与每个注册的 Machine 维护独立的动态 **Data Connection Pool**。
 *   **动态扩缩容**：每个 Pool 启动时保留最小连接数。当单条连接承载的 Session 达到目标阈值时，网关会建立新的数据连接；空闲连接在超时后会被回收，但不会低于最小连接数。
 *   **Session Binding**：Session 创建后会绑定到一条数据连接。后续客户端上行数据直接使用该 Binding，不会为每个 Packet 重新选择连接，保证同一方向上的时序性。
 *   **双向独立路由**：Machine 接收到数据连接后，会独立管理入站连接，并为 Workflow 输出选择稳定的回程连接。上行和下行不要求使用同一条物理连接，双方通过 SessionKey 识别数据归属。
@@ -63,14 +63,12 @@
 
 ### 连接池与 Session 粘连 (Pool & Affinity)
 为了保证同一个 Session 的音频流时序性，网关通过显式 Binding 实现“会话粘连”：
-*   **最小负载选择**：动态模式下，新 Session 会分配到当前负载最低的可用连接。Pool 使用连接负载维护优先队列，并用 `SessionKey -> Connection` 路由表保存分配结果。
+*   **最小负载选择**：新 Session 会分配到当前负载最低且未达到硬上限的活跃连接。Pool 维护连接负载、`SessionKey -> pooledConnection` 路由和 `SessionKey -> SessionBinding` 映射。
 *   **稳定路径**：Binding 创建后，同一 Session 的客户端上行数据始终经由同一个 Connection 发送。连接扩容或回收不会迁移已有 Session。
 *   **容量控制**：`pool_target_sessions_per_connection` 是触发扩容的目标水位；`pool_max_sessions_per_connection` 是单连接硬上限；`pool_max_connections` 限制单个 Machine 可建立的数据连接总数。
 *   **空闲回收**：Session 全部解绑后的连接进入空闲状态。超过 `pool_idle_timeout` 后，Pool 将其关闭并回收，保留不少于 `pool_min_connections` 条连接。
 
-固定模式下，网关仍会根据 SessionKey 的 Hash 映射到固定连接槽位。该模式不跟踪单连接负载，也不会随 Session 生命周期扩缩容，适合需要兼容旧部署配置的场景。
-
-> **注意**：Machine 侧的连接管理与网关 Pool 是两套独立职责。网关负责客户端数据进入 Machine 的连接 Binding；Machine 负责 Workflow 输出返回网关时的连接选择。它们不依赖 Slot，也不要求同一 Session 的双向数据使用同一条物理 WebSocket。
+> **注意**：Machine 侧的连接管理与网关 Pool 是两套独立职责。网关负责客户端数据进入 Machine 的连接 Binding；Machine 负责 Workflow 输出返回网关时的连接选择。它们不要求同一 Session 的双向数据使用同一条物理 WebSocket。
 
 ### 异常容错策略 (Fault Tolerance)
 *   **指数退避 (Exponential Backoff)**：当网关与 Pod 的数据链路断开时，会自动进入重连循环，重连时间间隔从 500ms 开始指数增加（最大 10s），直至 Pod 恢复。
@@ -94,4 +92,3 @@
     系统已提供基于 **Redis** 的 `WorkflowConfigManager` 实现。在多 Pod 分布式部署时，**必须** 开启 Redis 存储模式以确保所有节点之间的工作流配置实时同步。默认的文件存储模式仅适用于单机调试。
 5.  **缓冲区堆积**：
     当 Pod 处于 `Suspended`状态时，客户端若继续发送大量音频数据，网关会因为无法转发而丢弃数据包。
-

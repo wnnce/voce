@@ -43,7 +43,6 @@ type VoceConfig struct {
 	GrpcPort      int                  `json:"grpc_port" yaml:"grpc_port"`
 	Mode          string               `json:"mode" yaml:"mode"`
 	GatewayAddr   string               `json:"gateway_addr" yaml:"gateway_addr"`
-	PoolSize      int                  `json:"pool_size" yaml:"pool_size"`
 	WorkflowStore string               `json:"workflow_store" yaml:"workflow_store"` // "file" or "redis"
 	WorkflowDir   string               `json:"workflow_dir" yaml:"workflow_dir"`     // directory for "file" store
 	PluginServers []PluginServerConfig `json:"plugin_servers" yaml:"plugin_servers"`
@@ -59,8 +58,6 @@ type PluginServerConfig struct {
 type GatewayServerConfig struct {
 	CommonConfig                    `yaml:",inline"`
 	NetworkConfig                   `yaml:",inline"`
-	PoolMode                        string        `json:"pool_mode" yaml:"pool_mode"`
-	PoolSize                        int           `json:"pool_size" yaml:"pool_size"`
 	PoolMinConnections              int           `json:"pool_min_connections" yaml:"pool_min_connections"`
 	PoolTargetSessionsPerConnection int           `json:"pool_target_sessions_per_connection" yaml:"pool_target_sessions_per_connection"`
 	PoolMaxSessionsPerConnection    int           `json:"pool_max_sessions_per_connection" yaml:"pool_max_sessions_per_connection"`

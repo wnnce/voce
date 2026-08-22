@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/lesismal/nbio/nbhttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/wnnce/voce/internal/protocol"
@@ -14,7 +13,7 @@ import (
 
 func TestDynamicConnectionPoolBind(t *testing.T) {
 	t.Run("keeps the existing binding", func(t *testing.T) {
-		p := newTestDynamicConnectionPool(2, 0)
+		p := newTestConnectionPool(2, 0)
 		defer p.Shutdown()
 
 		key := testSessionKey(1)
@@ -28,7 +27,7 @@ func TestDynamicConnectionPoolBind(t *testing.T) {
 	})
 
 	t.Run("adds a connection after reaching per connection capacity", func(t *testing.T) {
-		p := newTestDynamicConnectionPool(1, 0)
+		p := newTestConnectionPool(1, 0)
 		defer p.Shutdown()
 
 		first := p.Bind(testSessionKey(1))
@@ -42,7 +41,7 @@ func TestDynamicConnectionPoolBind(t *testing.T) {
 	})
 
 	t.Run("leaves the binding empty when the connection limit is reached", func(t *testing.T) {
-		p := newTestDynamicConnectionPool(1, 1)
+		p := newTestConnectionPool(1, 1)
 		defer p.Shutdown()
 
 		firstKey := testSessionKey(1)
@@ -58,7 +57,7 @@ func TestDynamicConnectionPoolBind(t *testing.T) {
 }
 
 func TestDynamicConnectionPoolScalesAtTarget(t *testing.T) {
-	p := newTestDynamicConnectionPool(64, 0)
+	p := newTestConnectionPool(64, 0)
 	defer p.Shutdown()
 	p.targetSessions = 1
 
@@ -73,7 +72,7 @@ func TestDynamicConnectionPoolScalesAtTarget(t *testing.T) {
 }
 
 func TestDynamicConnectionPoolReusesReleasedCapacity(t *testing.T) {
-	p := newTestDynamicConnectionPool(64, 0)
+	p := newTestConnectionPool(64, 0)
 	defer p.Shutdown()
 	addTestConnection(p)
 
@@ -88,7 +87,7 @@ func TestDynamicConnectionPoolReusesReleasedCapacity(t *testing.T) {
 }
 
 func TestDynamicConnectionPoolUnbindAndCleanup(t *testing.T) {
-	p := newTestDynamicConnectionPool(1, 0)
+	p := newTestConnectionPool(1, 0)
 	defer p.Shutdown()
 
 	key := testSessionKey(1)
@@ -109,7 +108,7 @@ func TestDynamicConnectionPoolUnbindAndCleanup(t *testing.T) {
 }
 
 func TestDynamicConnectionPoolKeepsMinimumConnections(t *testing.T) {
-	p := newTestDynamicConnectionPool(1, 0)
+	p := newTestConnectionPool(1, 0)
 	p.minConns = 1
 	defer p.Shutdown()
 
@@ -128,7 +127,7 @@ func TestDynamicConnectionPoolKeepsMinimumConnections(t *testing.T) {
 }
 
 func TestDynamicConnectionPoolDropsClosedConnections(t *testing.T) {
-	p := newTestDynamicConnectionPool(2, 0)
+	p := newTestConnectionPool(2, 0)
 	defer p.Shutdown()
 
 	first := p.Bind(testSessionKey(1))
@@ -145,31 +144,14 @@ func TestDynamicConnectionPoolDropsClosedConnections(t *testing.T) {
 	assert.NotContains(t, p.connections, closed)
 }
 
-func TestFixedConnectionPoolBind(t *testing.T) {
-	p := &fixedConnectionPool{slots: []*Connection{testConnection(), testConnection()}}
-	key := testSessionKey(1)
-
-	first := p.Bind(key)
-	second := p.Bind(key)
-
-	assert.Same(t, first.Connection(), second.Connection())
-}
-
-func TestNewDataConnectionPoolRejectsNilEngine(t *testing.T) {
-	pool, err := NewDataConnectionPool(context.Background(), nil, "machine", "127.0.0.1:7001", ConnectionPoolConfig{Mode: "invalid"}, nil)
+func TestNewConnectionPoolRejectsNilEngine(t *testing.T) {
+	pool, err := NewConnectionPool(context.Background(), nil, "machine", "127.0.0.1:7001", ConnectionPoolConfig{}, nil)
 	assert.Nil(t, pool)
 	assert.ErrorIs(t, err, ErrNilNBHTTPEngine)
 }
 
-func TestNewDataConnectionPoolRejectsInvalidMode(t *testing.T) {
-	pool, err := NewDataConnectionPool(context.Background(), &nbhttp.Engine{}, "machine", "127.0.0.1:7001", ConnectionPoolConfig{Mode: "invalid"}, nil)
-	assert.Nil(t, pool)
-	assert.Error(t, err)
-}
-
-func newTestDynamicConnectionPool(maxSessions, maxConns int) *dynamicConnectionPool {
-	p := newDynamicConnectionPool(context.Background(), nil, "machine", "127.0.0.1:7001", ConnectionPoolConfig{
-		Mode:                     PoolModeDynamic,
+func newTestConnectionPool(maxSessions, maxConns int) *ConnectionPool {
+	p := newConnectionPool(context.Background(), nil, "machine", "127.0.0.1:7001", ConnectionPoolConfig{
 		MaxSessionsPerConnection: maxSessions,
 		MaxConnections:           maxConns,
 		IdleTimeout:              time.Millisecond,
@@ -183,14 +165,14 @@ func newTestDynamicConnectionPool(maxSessions, maxConns int) *dynamicConnectionP
 	return p
 }
 
-func addTestConnection(p *dynamicConnectionPool) {
+func addTestConnection(p *ConnectionPool) {
 	p.mu.Lock()
 	p.pendingDials++
 	p.mu.Unlock()
 	p.startDial()
 }
 
-func connectionCount(p *dynamicConnectionPool) int {
+func connectionCount(p *ConnectionPool) int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.connections)
@@ -207,7 +189,7 @@ func testSessionKey(value byte) protocol.SessionKey {
 }
 
 func TestDynamicConnectionPoolConnectionFactoryFailure(t *testing.T) {
-	p := newDynamicConnectionPool(context.Background(), nil, "machine", "127.0.0.1:7001", ConnectionPoolConfig{
+	p := newConnectionPool(context.Background(), nil, "machine", "127.0.0.1:7001", ConnectionPoolConfig{
 		MaxSessionsPerConnection: 1,
 		CleanupInterval:          time.Hour,
 	}, nil)

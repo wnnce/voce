@@ -48,7 +48,7 @@ type Machine struct {
 	ID            string
 	Host          string
 	Port          int
-	Pool          DataConnectionPool
+	Pool          *ConnectionPool
 	socket        atomic.Pointer[websocket.Conn]
 	state         atomic.Int32
 	mu            sync.RWMutex
@@ -74,9 +74,7 @@ func NewMachine(
 	onMessage func(protocol.SessionKey, []byte),
 ) (*Machine, error) {
 	addr := fmt.Sprintf("%s:%d", host, port)
-	pool, err := NewDataConnectionPool(ctx, engine, id, addr, ConnectionPoolConfig{
-		Mode:                        poolCfg.PoolMode,
-		Size:                        poolCfg.PoolSize,
+	pool, err := NewConnectionPool(ctx, engine, id, addr, ConnectionPoolConfig{
 		MinConnections:              poolCfg.PoolMinConnections,
 		TargetSessionsPerConnection: poolCfg.PoolTargetSessionsPerConnection,
 		MaxSessionsPerConnection:    poolCfg.PoolMaxSessionsPerConnection,

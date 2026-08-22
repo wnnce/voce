@@ -11,7 +11,8 @@ import (
 )
 
 func TestSessionManagerDeleteUnbindsPool(t *testing.T) {
-	pool := &testDataConnectionPool{}
+	pool := newTestConnectionPool(1, 0)
+	defer pool.Shutdown()
 	key := testSessionKey(1)
 	machine := &Machine{
 		Pool:     pool,
@@ -20,15 +21,19 @@ func TestSessionManagerDeleteUnbindsPool(t *testing.T) {
 	sm := &SessionManager{
 		shards: syncx.NewShardedMap[protocol.SessionKey, *Session](64, sessionHash),
 	}
-	sm.Store(NewSession(key, newSessionBinding(nil), machine))
+	sm.Store(NewSession(key, pool.Bind(key), machine))
 	sm.Delete(key)
 
-	assert.Equal(t, []protocol.SessionKey{key}, pool.unbound)
+	pool.mu.Lock()
+	_, bound := pool.bindings[key]
+	pool.mu.Unlock()
+	assert.False(t, bound)
 	assert.Empty(t, machine.sessions)
 }
 
 func TestSessionManagerDispatchCloseCleansGatewayResources(t *testing.T) {
-	pool := &testDataConnectionPool{}
+	pool := newTestConnectionPool(1, 0)
+	defer pool.Shutdown()
 	key := testSessionKey(2)
 	machine := &Machine{
 		Pool:     pool,
@@ -37,7 +42,7 @@ func TestSessionManagerDispatchCloseCleansGatewayResources(t *testing.T) {
 	sm := &SessionManager{
 		shards: syncx.NewShardedMap[protocol.SessionKey, *Session](64, sessionHash),
 	}
-	session := NewSession(key, newSessionBinding(nil), machine)
+	session := NewSession(key, pool.Bind(key), machine)
 	session.state.Store(int32(SessionReady))
 	sm.Store(session)
 
@@ -50,26 +55,13 @@ func TestSessionManagerDispatchCloseCleansGatewayResources(t *testing.T) {
 	assert.Equal(t, SessionClosed, session.State())
 	_, exists := sm.Load(key)
 	require.False(t, exists)
-	assert.Equal(t, []protocol.SessionKey{key}, pool.unbound)
+	pool.mu.Lock()
+	_, bound := pool.bindings[key]
+	pool.mu.Unlock()
+	assert.False(t, bound)
 	assert.Empty(t, machine.sessions)
 }
 
 func sessionHash(key protocol.SessionKey) uint64 {
 	return binary.BigEndian.Uint64(key[:8]) ^ binary.BigEndian.Uint64(key[8:])
 }
-
-type testDataConnectionPool struct {
-	unbound []protocol.SessionKey
-}
-
-func (p *testDataConnectionPool) Bind(protocol.SessionKey) *SessionBinding {
-	return newSessionBinding(nil)
-}
-
-func (p *testDataConnectionPool) Unbind(key protocol.SessionKey) {
-	p.unbound = append(p.unbound, key)
-}
-
-func (p *testDataConnectionPool) Shutdown() {}
-
-func (p *testDataConnectionPool) Snapshots() []ConnectionPoolSnapshot { return nil }
