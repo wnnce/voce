@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -106,6 +107,55 @@ func TestConnectionManagerReleaseAndRemove(t *testing.T) {
 		assert.Len(t, m.active, 1)
 		assert.Same(t, second, m.Select(firstKey))
 	})
+}
+
+func TestConnectionManagerStoreAndRemoveAreIdempotent(t *testing.T) {
+	m := newTestConnectionManager()
+	conn := activeTestConnection()
+
+	m.Store(nil)
+	m.Store(conn)
+	m.Store(conn)
+	assert.Len(t, m.connections, 1)
+	assert.Len(t, m.active, 1)
+
+	m.Remove(nil)
+	m.Remove(activeTestConnection())
+	assert.Contains(t, m.connections, conn)
+
+	m.Remove(conn)
+	m.Remove(conn)
+	assert.Empty(t, m.connections)
+	assert.Empty(t, m.active)
+}
+
+func TestConnectionManagerSelectSameSessionConcurrently(t *testing.T) {
+	m := newTestConnectionManager()
+	first := activeTestConnection()
+	second := activeTestConnection()
+	m.Store(first)
+	m.Store(second)
+
+	key := testSessionKey(1)
+	const workers = 32
+	connections := make(chan *Connection, workers)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			connections <- m.Select(key)
+		}()
+	}
+	wg.Wait()
+	close(connections)
+
+	for conn := range connections {
+		assert.Same(t, first, conn)
+	}
+	assert.Len(t, m.routes, 1)
+	assert.Equal(t, 1, m.connections[first].load)
+	assert.Zero(t, m.connections[second].load)
 }
 
 func activeTestConnection() *Connection {
