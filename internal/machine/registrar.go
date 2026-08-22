@@ -62,17 +62,7 @@ func (r *Registrar) reconnectLoop() {
 }
 
 func (r *Registrar) register() error {
-	params := url.Values{}
-	params.Set("id", r.id)
-	params.Set("port", fmt.Sprintf("%d", r.port))
-
-	u := url.URL{
-		Scheme:   "ws",
-		Host:     r.gatewayAddr,
-		Path:     "/register",
-		RawQuery: params.Encode(),
-	}
-
+	u := r.registrationURL()
 	socket, _, err := gws.NewClient(r, &gws.ClientOption{
 		Addr: u.String(),
 	})
@@ -81,6 +71,19 @@ func (r *Registrar) register() error {
 	}
 	socket.ReadLoop()
 	return nil
+}
+
+func (r *Registrar) registrationURL() url.URL {
+	params := url.Values{}
+	params.Set("id", r.id)
+	params.Set("port", fmt.Sprintf("%d", r.port))
+
+	return url.URL{
+		Scheme:   "ws",
+		Host:     r.gatewayAddr,
+		Path:     "/register",
+		RawQuery: params.Encode(),
+	}
 }
 
 func (r *Registrar) OnOpen(c *gws.Conn) {

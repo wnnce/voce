@@ -178,8 +178,8 @@ func (h *Handler) HandleSessionCreate(w http.ResponseWriter, r *http.Request) er
 
 		sid := res.Data["session_id"]
 		key, _ := parseSessionKey(sid)
-		connection := machine.Pool.Select(key)
-		session := NewSession(key, connection, machine)
+		binding := machine.Pool.Bind(key)
+		session := NewSession(key, binding, machine)
 		h.sm.Store(session)
 		machine.AddSession(key)
 		slog.Info("session registered on gateway", "id", sid, "machine", machine.ID, "addr", machine.Address())
@@ -260,6 +260,9 @@ func (h *Handler) HandleRealtime(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	if !session.Acquire() {
+		return errcode.New(http.StatusConflict, http.StatusConflict, "session is already connected")
+	}
 
 	upgrader := websocket.NewUpgrader()
 	upgrader.OnOpen(session.OnClientOpen)
@@ -267,6 +270,7 @@ func (h *Handler) HandleRealtime(w http.ResponseWriter, r *http.Request) error {
 	upgrader.OnClose(session.OnClientClose)
 	upgrader.SetPingHandler(session.OnClientPing)
 	if _, err = upgrader.Upgrade(w, r, nil); err != nil {
+		session.Release()
 		slog.Error("upgrade realtime client socket failed", "session", chi.URLParam(r, "id"), "error", err)
 		return errcode.NewInternal(err.Error())
 	}

@@ -14,15 +14,17 @@ type MessageHandler func(key protocol.SessionKey, packet *protocol.Packet)
 // Connection represents an inbound pool connection from the gateway to the machine.
 type Connection struct {
 	gws.BuiltinEventHandler
-	socket atomic.Pointer[gws.Conn]
-	state  atomic.Int32
-	handle MessageHandler
+	manager *ConnectionManager
+	socket  atomic.Pointer[gws.Conn]
+	state   atomic.Int32
+	handle  MessageHandler
 }
 
 // NewConnection creates a new pool connection instance.
-func NewConnection(handle MessageHandler) *Connection {
+func NewConnection(manager *ConnectionManager, handle MessageHandler) *Connection {
 	return &Connection{
-		handle: handle,
+		manager: manager,
+		handle:  handle,
 	}
 }
 
@@ -42,11 +44,17 @@ func (c *Connection) OnOpen(socket *gws.Conn) {
 	slog.Info("machine pool connection established")
 	c.socket.Store(socket)
 	c.state.Store(int32(protocol.ConnectionActive))
+	if c.manager != nil {
+		c.manager.Store(c)
+	}
 }
 
 func (c *Connection) OnClose(_ *gws.Conn, err error) {
 	c.state.Store(int32(protocol.ConnectionClosed))
 	c.socket.Store(nil)
+	if c.manager != nil {
+		c.manager.Remove(c)
+	}
 }
 
 func (c *Connection) OnMessage(_ *gws.Conn, message *gws.Message) {

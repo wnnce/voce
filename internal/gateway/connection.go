@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/url"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -18,6 +17,12 @@ import (
 )
 
 type MessageDispatcher func(key protocol.SessionKey, data []byte)
+
+// ConnectionObserver receives data-plane connection lifecycle changes.
+type ConnectionObserver interface {
+	OnConnectionOpen(*Connection)
+	OnConnectionClose(*Connection)
+}
 
 var (
 	ErrConnectionNotActive = errors.New("connection is not active")
@@ -44,16 +49,15 @@ type Connection struct {
 	state      atomic.Int32
 	socket     atomic.Pointer[websocket.Conn]
 	dispatcher MessageDispatcher
-	slot       int
+	observer   ConnectionObserver
 }
 
-// NewConnection creates and initializes a new pool connection.
-func NewConnection(
+func newPoolConnection(
 	ctx context.Context,
 	engine *nbhttp.Engine,
 	machineID, address string,
-	slot int,
 	dispatcher MessageDispatcher,
+	observer ConnectionObserver,
 ) (*Connection, error) {
 	u, err := url.Parse("ws://" + address + "/pool")
 	if err != nil {
@@ -63,8 +67,8 @@ func NewConnection(
 		machineID:  machineID,
 		ctx:        ctx,
 		addr:       u,
-		slot:       slot,
 		dispatcher: dispatcher,
+		observer:   observer,
 	}
 	if engine == nil {
 		return nil, ErrNilNBHTTPEngine
@@ -80,17 +84,11 @@ func NewConnection(
 	}
 	conn.dialer = dialer
 	conn.state.Store(int32(protocol.ConnectionConnecting))
-	if err = conn.Connect(); err != nil {
-		return nil, err
-	}
 	return conn, nil
 }
 
 // Connect initiates the WebSocket handshake.
 func (c *Connection) Connect() error {
-	q := c.addr.Query()
-	q.Set("slot", strconv.Itoa(c.slot))
-	c.addr.RawQuery = q.Encode()
 	slog.Info("gateway dialing machine pool", "machineID", c.machineID, "url", c.addr.String())
 	//nolint:bodyclose // nbio
 	_, _, err := c.dialer.DialContext(c.ctx, c.addr.String(), nil)
@@ -132,26 +130,35 @@ func (c *Connection) OnClose(socket *websocket.Conn, err error) {
 		return
 	}
 	c.socket.Store(nil)
+	if c.observer != nil {
+		c.observer.OnConnectionClose(c)
+	}
 	go c.reconnectLoop()
 }
 
 func (c *Connection) OnOpen(socket *websocket.Conn) {
-	slog.Info("gateway machine pool connection opened", "machineID", c.machineID, "slot", c.slot)
-	c.state.Store(int32(protocol.ConnectionActive))
+	slog.Info("gateway machine pool connection opened", "machineID", c.machineID)
+	if !c.state.CompareAndSwap(int32(protocol.ConnectionConnecting), int32(protocol.ConnectionActive)) {
+		_ = socket.Close()
+		return
+	}
 	c.socket.Store(socket)
+	if c.observer != nil {
+		c.observer.OnConnectionOpen(c)
+	}
 }
 
 func (c *Connection) Close() {
-	if c.State() == protocol.ConnectionClosed {
+	if protocol.ConnectionState(c.state.Swap(int32(protocol.ConnectionClosed))) == protocol.ConnectionClosed {
 		return
 	}
-	c.state.Store(int32(protocol.ConnectionClosed))
 	socket := c.socket.Load()
 	if socket != nil {
-		if err := socket.Close(); err != nil {
-
-		}
+		_ = socket.Close()
 		c.socket.Store(nil)
+	}
+	if c.observer != nil {
+		c.observer.OnConnectionClose(c)
 	}
 }
 

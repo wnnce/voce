@@ -11,6 +11,7 @@ import (
 
 	"github.com/lesismal/nbio/nbhttp"
 	"github.com/lesismal/nbio/nbhttp/websocket"
+	"github.com/wnnce/voce/config"
 	"github.com/wnnce/voce/internal/protocol"
 )
 
@@ -56,23 +57,31 @@ type Machine struct {
 }
 
 type MachineSnapshot struct {
-	ID            string                       `json:"id"`
-	Address       string                       `json:"address"`
-	State         MachineState                 `json:"state"`
-	Sessions      int32                        `json:"sessions"`
-	LastHeartbeat int64                        `json:"last_heartbeat"`
-	Pool          []ConnectionPoolSlotSnapshot `json:"pool"`
+	ID            string                   `json:"id"`
+	Address       string                   `json:"address"`
+	State         MachineState             `json:"state"`
+	Sessions      int32                    `json:"sessions"`
+	LastHeartbeat int64                    `json:"last_heartbeat"`
+	Pool          []ConnectionPoolSnapshot `json:"pool"`
 }
 
 func NewMachine(
 	ctx context.Context,
 	engine *nbhttp.Engine,
-	id, host string, port,
-	poolSize int,
+	id, host string,
+	port int,
+	poolCfg config.GatewayServerConfig,
 	onMessage func(protocol.SessionKey, []byte),
 ) (*Machine, error) {
 	addr := fmt.Sprintf("%s:%d", host, port)
-	pool, err := NewConnectionPool(ctx, engine, id, addr, poolSize, onMessage)
+	pool, err := NewConnectionPool(ctx, engine, id, addr, ConnectionPoolConfig{
+		MinConnections:              poolCfg.PoolMinConnections,
+		TargetSessionsPerConnection: poolCfg.PoolTargetSessionsPerConnection,
+		MaxSessionsPerConnection:    poolCfg.PoolMaxSessionsPerConnection,
+		MaxConnections:              poolCfg.PoolMaxConnections,
+		IdleTimeout:                 poolCfg.PoolIdleTimeout,
+		CleanupInterval:             poolCfg.PoolCleanupInterval,
+	}, onMessage)
 	if err != nil {
 		return nil, err
 	}

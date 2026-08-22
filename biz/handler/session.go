@@ -131,11 +131,7 @@ func (h *SessionHandler) DeleteWorkflowSession(w http.ResponseWriter, request *h
 }
 
 func (h *SessionHandler) sessionWriteLoop(session *engine.Session) {
-	conn := h.cm.Select(session.Key)
-	if conn == nil {
-		slog.ErrorContext(session.Workflow.Context(), "failed to select connection", "session_id", session.Key.String())
-		return
-	}
+	var conn *machine.Connection
 	ctx := session.Workflow.Context()
 	for {
 		select {
@@ -145,7 +141,12 @@ func (h *SessionHandler) sessionWriteLoop(session *engine.Session) {
 			if !ok {
 				return
 			}
-			if err := conn.Write(session.Key, packet); err != nil {
+			if conn == nil || conn.State() != protocol.ConnectionActive {
+				conn = h.cm.Select(session.Key)
+			}
+			if conn == nil {
+				slog.DebugContext(session.Workflow.Context(), "dropped workflow packet without active connection", "session_id", session.Key.String())
+			} else if err := conn.Write(session.Key, packet); err != nil {
 				slog.Error("failed to write packet to connection", "error", err, "session_id", session.Key.String())
 			}
 			session.UpdateActivity()

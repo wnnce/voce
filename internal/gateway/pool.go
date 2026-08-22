@@ -1,91 +1,494 @@
 package gateway
 
 import (
+	"container/heap"
 	"context"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/lesismal/nbio/nbhttp"
 	"github.com/wnnce/voce/internal/protocol"
 )
 
 const (
-	offset32 = 2166136261
-	prime32  = 16777619
+	defaultMinConnections              = 1
+	defaultTargetSessionsPerConnection = 16
+	defaultMaxSessionsPerConnection    = 64
+	defaultIdleTimeout                 = 30 * time.Second
+	defaultCleanupInterval             = 5 * time.Second
 )
 
-// ConnectionPool manages a set of WebSocket connections to a machine.
-// It uses consistent hashing to ensure a session always uses the same physical connection.
-type ConnectionPool struct {
-	slots  []*Connection
-	closed atomic.Bool
+// ConnectionPoolConfig controls one machine's data-plane connection pool.
+type ConnectionPoolConfig struct {
+	MinConnections              int
+	TargetSessionsPerConnection int
+	MaxSessionsPerConnection    int
+	MaxConnections              int
+	IdleTimeout                 time.Duration
+	CleanupInterval             time.Duration
 }
 
-type ConnectionPoolSlotSnapshot struct {
-	Slot  int                      `json:"slot"`
-	State protocol.ConnectionState `json:"state"`
+func defaultConnectionPoolConfig(cfg ConnectionPoolConfig) ConnectionPoolConfig {
+	if cfg.MinConnections <= 0 {
+		cfg.MinConnections = defaultMinConnections
+	}
+	if cfg.MaxSessionsPerConnection <= 0 {
+		cfg.MaxSessionsPerConnection = defaultMaxSessionsPerConnection
+	}
+	if cfg.TargetSessionsPerConnection <= 0 {
+		cfg.TargetSessionsPerConnection = defaultTargetSessionsPerConnection
+	}
+	if cfg.TargetSessionsPerConnection > cfg.MaxSessionsPerConnection {
+		cfg.TargetSessionsPerConnection = cfg.MaxSessionsPerConnection
+	}
+	if cfg.IdleTimeout <= 0 {
+		cfg.IdleTimeout = defaultIdleTimeout
+	}
+	if cfg.CleanupInterval <= 0 {
+		cfg.CleanupInterval = defaultCleanupInterval
+	}
+	return cfg
+}
+
+// SessionBinding is the session-local handle used on the data-plane hot path.
+// Dynamic pools may keep the same Connection object through physical reconnects.
+type SessionBinding struct {
+	conn atomic.Pointer[Connection]
+}
+
+func newSessionBinding(conn *Connection) *SessionBinding {
+	binding := &SessionBinding{}
+	binding.conn.Store(conn)
+	return binding
+}
+
+func (b *SessionBinding) Connection() *Connection {
+	if b == nil {
+		return nil
+	}
+	return b.conn.Load()
+}
+
+type ConnectionPoolSnapshot struct {
+	ID        uint64                   `json:"id,omitempty"`
+	State     protocol.ConnectionState `json:"state"`
+	Sessions  int                      `json:"sessions"`
+	IdleSince int64                    `json:"idle_since,omitempty"`
 }
 
 func NewConnectionPool(
 	ctx context.Context,
 	engine *nbhttp.Engine,
 	machineID, address string,
-	size int,
+	cfg ConnectionPoolConfig,
 	dispatcher MessageDispatcher,
 ) (*ConnectionPool, error) {
-	p := &ConnectionPool{
-		slots: make([]*Connection, size),
+	if engine == nil {
+		return nil, ErrNilNBHTTPEngine
 	}
-
-	for i := 0; i < size; i++ {
-		conn, err := NewConnection(ctx, engine, machineID, address, i, dispatcher)
-		if err != nil {
-			p.Shutdown()
-			return nil, err
-		}
-		p.slots[i] = conn
-	}
+	p := newConnectionPool(ctx, engine, machineID, address, cfg, dispatcher)
+	p.startMinConnections()
 	return p, nil
 }
 
-// Select picks a connection from the pool based on the session key.
-func (p *ConnectionPool) Select(key protocol.SessionKey) *Connection {
-	if p.closed.Load() || len(p.slots) == 0 {
-		return nil
-	}
+// ConnectionPool owns one machine's dynamic data-plane connections and session bindings.
+type ConnectionPool struct {
+	ctx        context.Context
+	cancel     context.CancelFunc
+	engine     *nbhttp.Engine
+	machineID  string
+	address    string
+	dispatcher MessageDispatcher
 
-	hash := uint32(offset32)
-	for i := 0; i < len(key); i++ {
-		hash ^= uint32(key[i])
-		hash *= prime32
-	}
+	minConns       int
+	targetSessions int
+	maxSessions    int
+	maxConns       int
+	idleTimeout    time.Duration
+	cleanup        time.Duration
 
-	idx := hash % uint32(len(p.slots))
-	return p.slots[idx]
+	mu            sync.Mutex
+	nextID        uint64
+	connections   map[*Connection]*pooledConnection
+	routes        map[protocol.SessionKey]*pooledConnection
+	bindings      map[protocol.SessionKey]*SessionBinding
+	queue         connectionMinHeap
+	closed        atomic.Bool
+	pendingDials  int
+	newConnection func() (*Connection, error)
+	connect       func(*Connection) error
 }
 
-// Shutdown closes all connections in the pool.
+var _ ConnectionObserver = (*ConnectionPool)(nil)
+
+type pooledConnection struct {
+	id        uint64
+	conn      *Connection
+	load      int
+	priority  connectionPriority
+	index     int
+	idleSince time.Time
+	sessions  map[protocol.SessionKey]struct{}
+}
+
+type connectionPriority uint8
+
+const (
+	connectionPriorityActive connectionPriority = iota
+	connectionPriorityConnecting
+	connectionPriorityUnavailable
+)
+
+func newConnectionPool(
+	parent context.Context,
+	engine *nbhttp.Engine,
+	machineID, address string,
+	cfg ConnectionPoolConfig,
+	dispatcher MessageDispatcher,
+) *ConnectionPool {
+	cfg = defaultConnectionPoolConfig(cfg)
+	ctx, cancel := context.WithCancel(parent)
+	p := &ConnectionPool{
+		ctx:            ctx,
+		cancel:         cancel,
+		engine:         engine,
+		machineID:      machineID,
+		address:        address,
+		dispatcher:     dispatcher,
+		minConns:       cfg.MinConnections,
+		targetSessions: cfg.TargetSessionsPerConnection,
+		maxSessions:    cfg.MaxSessionsPerConnection,
+		maxConns:       cfg.MaxConnections,
+		idleTimeout:    cfg.IdleTimeout,
+		cleanup:        cfg.CleanupInterval,
+		connections:    make(map[*Connection]*pooledConnection),
+		routes:         make(map[protocol.SessionKey]*pooledConnection),
+		bindings:       make(map[protocol.SessionKey]*SessionBinding),
+	}
+	p.newConnection = func() (*Connection, error) {
+		return newPoolConnection(p.ctx, p.engine, p.machineID, p.address, p.dispatcher, p)
+	}
+	p.connect = func(conn *Connection) error {
+		return conn.Connect()
+	}
+	go p.cleanupLoop()
+	return p
+}
+
+func (p *ConnectionPool) Bind(key protocol.SessionKey) *SessionBinding {
+	p.mu.Lock()
+	if binding, ok := p.bindings[key]; ok {
+		p.mu.Unlock()
+		return binding
+	}
+
+	binding := newSessionBinding(nil)
+	p.bindings[key] = binding
+	if item := p.selectLocked(); item != nil {
+		p.attachLocked(key, binding, item)
+		startDial := item.priority == connectionPriorityActive && p.reserveScaleLocked()
+		p.mu.Unlock()
+		if startDial {
+			go p.startDial()
+		}
+		return binding
+	}
+	if !p.reserveDialLocked() {
+		p.mu.Unlock()
+		return binding
+	}
+	p.mu.Unlock()
+	go p.startDial()
+	return binding
+}
+
+func (p *ConnectionPool) Unbind(key protocol.SessionKey) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	delete(p.bindings, key)
+	item, ok := p.routes[key]
+	if !ok {
+		return
+	}
+	delete(p.routes, key)
+	delete(item.sessions, key)
+	if item.load > 0 {
+		item.load--
+		p.refreshLocked(item)
+	}
+	if item.load == 0 {
+		item.idleSince = time.Now()
+	}
+	p.assignPendingLocked()
+}
+
 func (p *ConnectionPool) Shutdown() {
 	if p.closed.Swap(true) {
 		return
 	}
-	for _, conn := range p.slots {
-		if conn != nil {
-			conn.Close()
+	p.cancel()
+
+	p.mu.Lock()
+	connections := make([]*Connection, 0, len(p.connections))
+	for conn := range p.connections {
+		connections = append(connections, conn)
+	}
+	for _, binding := range p.bindings {
+		binding.conn.Store(nil)
+	}
+	clear(p.connections)
+	clear(p.routes)
+	clear(p.bindings)
+	p.queue = nil
+	p.mu.Unlock()
+
+	for _, conn := range connections {
+		conn.Close()
+	}
+}
+
+func (p *ConnectionPool) Snapshots() []ConnectionPoolSnapshot {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	snapshots := make([]ConnectionPoolSnapshot, 0, len(p.connections))
+	for _, item := range p.connections {
+		idleSince := int64(0)
+		if !item.idleSince.IsZero() {
+			idleSince = item.idleSince.UnixMilli()
+		}
+		snapshots = append(snapshots, ConnectionPoolSnapshot{
+			ID:        item.id,
+			State:     item.conn.State(),
+			Sessions:  item.load,
+			IdleSince: idleSince,
+		})
+	}
+	return snapshots
+}
+
+func (p *ConnectionPool) startMinConnections() {
+	p.mu.Lock()
+	starts := 0
+	for len(p.connections)+p.pendingDials < p.minConns {
+		p.pendingDials++
+		starts++
+	}
+	p.mu.Unlock()
+	for range starts {
+		go p.startDial()
+	}
+}
+
+func (p *ConnectionPool) reserveScaleLocked() bool {
+	if p.pendingDials > 0 {
+		return false
+	}
+	item := p.selectLocked()
+	if item == nil || item.priority != connectionPriorityActive || item.load < p.targetSessions {
+		return false
+	}
+	return p.reserveDialLocked()
+}
+
+func (p *ConnectionPool) reserveDialLocked() bool {
+	if p.pendingDials > 0 || p.closed.Load() || (p.maxConns > 0 && len(p.connections)+p.pendingDials >= p.maxConns) {
+		return false
+	}
+	p.pendingDials++
+	return true
+}
+
+func (p *ConnectionPool) startDial() {
+	conn, err := p.newConnection()
+	if err != nil {
+		p.mu.Lock()
+		p.pendingDials--
+		p.mu.Unlock()
+		return
+	}
+
+	p.mu.Lock()
+	p.pendingDials--
+	if p.closed.Load() {
+		p.mu.Unlock()
+		conn.Close()
+		return
+	}
+	p.nextID++
+	item := &pooledConnection{
+		id:       p.nextID,
+		conn:     conn,
+		index:    len(p.queue),
+		sessions: make(map[protocol.SessionKey]struct{}),
+	}
+	item.priority = p.priorityLocked(item)
+	p.connections[conn] = item
+	heap.Push(&p.queue, item)
+	p.assignPendingLocked()
+	p.mu.Unlock()
+
+	if err = p.connect(conn); err != nil {
+		go conn.reconnectLoop()
+	}
+}
+
+func (p *ConnectionPool) selectLocked() *pooledConnection {
+	if len(p.queue) == 0 || p.queue[0].priority == connectionPriorityUnavailable {
+		return nil
+	}
+	return p.queue[0]
+}
+
+func (p *ConnectionPool) priorityLocked(item *pooledConnection) connectionPriority {
+	if item.load >= p.maxSessions {
+		return connectionPriorityUnavailable
+	}
+	switch item.conn.State() {
+	case protocol.ConnectionActive:
+		return connectionPriorityActive
+	case protocol.ConnectionConnecting:
+		return connectionPriorityConnecting
+	default:
+		return connectionPriorityUnavailable
+	}
+}
+
+func (p *ConnectionPool) refreshLocked(item *pooledConnection) {
+	item.priority = p.priorityLocked(item)
+	heap.Fix(&p.queue, item.index)
+}
+
+// syncConnectionState keeps the allocation heap aligned with a connection's
+// current lifecycle state.
+func (p *ConnectionPool) syncConnectionState(conn *Connection) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	item := p.connections[conn]
+	if item == nil {
+		return
+	}
+	if conn.State() == protocol.ConnectionClosed {
+		p.removeLocked(item)
+		p.assignPendingLocked()
+		return
+	}
+	p.refreshLocked(item)
+}
+
+func (p *ConnectionPool) OnConnectionOpen(conn *Connection) {
+	p.syncConnectionState(conn)
+}
+
+func (p *ConnectionPool) OnConnectionClose(conn *Connection) {
+	p.syncConnectionState(conn)
+}
+
+func (p *ConnectionPool) attachLocked(key protocol.SessionKey, binding *SessionBinding, item *pooledConnection) {
+	p.routes[key] = item
+	item.sessions[key] = struct{}{}
+	item.load++
+	item.idleSince = time.Time{}
+	binding.conn.Store(item.conn)
+	p.refreshLocked(item)
+}
+
+func (p *ConnectionPool) assignPendingLocked() {
+	for key, binding := range p.bindings {
+		if _, assigned := p.routes[key]; assigned {
+			continue
+		}
+		item := p.selectLocked()
+		if item == nil {
+			return
+		}
+		p.attachLocked(key, binding, item)
+	}
+}
+
+func (p *ConnectionPool) removeLocked(item *pooledConnection) {
+	if p.connections[item.conn] != item {
+		return
+	}
+	delete(p.connections, item.conn)
+	if item.index >= 0 {
+		heap.Remove(&p.queue, item.index)
+	}
+	for key := range item.sessions {
+		if p.routes[key] == item {
+			delete(p.routes, key)
+			if binding := p.bindings[key]; binding != nil {
+				binding.conn.Store(nil)
+			}
+		}
+	}
+	clear(item.sessions)
+}
+
+func (p *ConnectionPool) cleanupLoop() {
+	ticker := time.NewTicker(p.cleanup)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case now := <-ticker.C:
+			p.cleanupIdle(now)
 		}
 	}
 }
 
-func (p *ConnectionPool) Snapshots() []ConnectionPoolSlotSnapshot {
-	snapshots := make([]ConnectionPoolSlotSnapshot, 0, len(p.slots))
-	for i, conn := range p.slots {
-		state := protocol.ConnectionClosed
-		if conn != nil {
-			state = conn.State()
+func (p *ConnectionPool) cleanupIdle(now time.Time) {
+	p.mu.Lock()
+	connections := make([]*Connection, 0)
+	for _, item := range p.connections {
+		if len(p.connections) > p.minConns && item.load == 0 && !item.idleSince.IsZero() && now.Sub(item.idleSince) >= p.idleTimeout {
+			p.removeLocked(item)
+			connections = append(connections, item.conn)
 		}
-		snapshots = append(snapshots, ConnectionPoolSlotSnapshot{
-			Slot:  i,
-			State: state,
-		})
 	}
-	return snapshots
+	p.mu.Unlock()
+
+	for _, conn := range connections {
+		conn.Close()
+	}
+}
+
+type connectionMinHeap []*pooledConnection
+
+func (h connectionMinHeap) Len() int { return len(h) }
+
+func (h connectionMinHeap) Less(i, j int) bool {
+	if h[i].priority != h[j].priority {
+		return h[i].priority < h[j].priority
+	}
+	if h[i].load != h[j].load {
+		return h[i].load < h[j].load
+	}
+	return h[i].id < h[j].id
+}
+
+func (h connectionMinHeap) Swap(i, j int) {
+	h[i], h[j] = h[j], h[i]
+	h[i].index = i
+	h[j].index = j
+}
+
+func (h *connectionMinHeap) Push(value any) {
+	item := value.(*pooledConnection)
+	item.index = len(*h)
+	*h = append(*h, item)
+}
+
+func (h *connectionMinHeap) Pop() any {
+	old := *h
+	last := len(old) - 1
+	item := old[last]
+	old[last] = nil
+	item.index = -1
+	*h = old[:last]
+	return item
 }

@@ -31,7 +31,7 @@
 *   **流量分发 (Load Balancing)**：根据后端节点的负载情况，将新创建的会话分配到最合适的 Pod。
 *   **会话路由 (Session Routing)**：维护 `SessionID -> Machine` 的映射，确保特定的会话始终路由到正确的后端。
 *   **连接池复用 (Connection Pooling)**：网关与每个 Pod 建立持久的连接池，避免了为每个用户连接都建立独立底层链路的开销。
-*   **状态感知 (Health Mastery)**：实时感知 Pod 的在线、挂起、下线状态，处理 Pod 意外崩溃时的会话恢复场景。
+*   **状态感知 (Health Mastery)**：实时感知 Pod 的在线、挂起、下线状态；在重连窗口内保留会话，心跳超时后清理关联会话。
 
 ---
 
@@ -43,30 +43,37 @@
 *   **缓冲机制**：机器处于 `Suspended` 状态时，网关会保持现有的 Session 不释放，等待 Pod 重连或超时清理。
 
 ### 数据连接池 (Data Plane)
-网关与每个注册的 Machine 维护一个固定大小的 **Connection Pool**（默认 16 个链接）。
-*   **一致性 Hash**：对 SessionKey 进行 Hash 运算结果取模，确保同一个会话的数据流始终走同一个物理 TCP 连接，保证了数据的时序性。
+网关与每个注册的 Machine 维护独立的动态 **Data Connection Pool**。
+*   **动态扩缩容**：每个 Pool 启动时保留最小连接数。当单条连接承载的 Session 达到目标阈值时，网关会建立新的数据连接；空闲连接在超时后会被回收，但不会低于最小连接数。
+*   **Session Binding**：Session 创建后会绑定到一条数据连接。后续客户端上行数据直接使用该 Binding，不会为每个 Packet 重新选择连接，保证同一方向上的时序性。
+*   **双向独立路由**：Machine 接收到数据连接后，会独立管理入站连接，并为 Workflow 输出选择稳定的回程连接。上行和下行不要求使用同一条物理连接，双方通过 SessionKey 识别数据归属。
 *   **内部协议封装**：
     数据流进入 Pool 时，网关会在标准二进制报文前增加 **16 字节的 SessionKey 前缀**，以便 Pod 识别数据归属。
 
 ### 会话生命周期 (Session Lifecycle)
 1.  **创建**：客户端调用网关 `/sessions`，网关从 `MachineManager` 选出最空闲的机器并透传请求。
-2.  **关联**：网关记录 SessionKey 与 Machine 的关系，并根据 SessionKey 选择连接池中的 Slot。
+2.  **关联**：网关记录 SessionKey 与 Machine 的关系，并在该 Machine 的 Data Connection Pool 中创建 Session Binding。
 3.  **转发**：网关在客户端 WebSocket 与机器数据链路之间进行双向透明转发。
-4.  **销毁**：Pod 明确下发 Close 包或会话空闲超时。
+4.  **暂停**：客户端 WebSocket 普通断开时，网关向 Machine 下发 Pause，保留 Session 与连接 Binding，以支持短暂断线后的恢复。
+5.  **销毁**：Pod 下发 Close 包、客户端显式关闭或会话空闲超时时，网关清理 Session、Machine 归属与连接 Binding。
 
 ---
 
 ## 详细设计 (Detailed Design)
 
 ### 连接池与 Session 粘连 (Pool & Affinity)
-为了保证同一个 Session 的音频流时序性，网关通过以下逻辑实现“会话粘连”：
-*   **Slot 映射**：每个机器连接池包含 $N$ 个 Slot（默认 16）。
-*   **Hash 算法**：对 16 字节的 `SessionKey` 执行 FNV-1a 类似的快速哈希，结果对池大小取模。
-*   **固定路径**：一旦确定 Slot，该会话的所有上下行数据将锁定该 TCP 连接，有效避免了多路复用时由于网络波动导致的数据包乱序。
+为了保证同一个 Session 的音频流时序性，网关通过显式 Binding 实现“会话粘连”：
+*   **最小负载选择**：新 Session 会分配到当前负载最低且未达到硬上限的活跃连接。Pool 维护连接负载、`SessionKey -> pooledConnection` 路由和 `SessionKey -> SessionBinding` 映射。
+*   **稳定路径**：Binding 创建后，同一 Session 的客户端上行数据始终经由同一个 Connection 发送。连接扩容或回收不会迁移已有 Session。
+*   **容量控制**：`pool_target_sessions_per_connection` 是触发扩容的目标水位；`pool_max_sessions_per_connection` 是单连接硬上限；`pool_max_connections` 限制单个 Machine 可建立的数据连接总数。
+*   **空闲回收**：Session 全部解绑后的连接进入空闲状态。超过 `pool_idle_timeout` 后，Pool 将其关闭并回收，保留不少于 `pool_min_connections` 条连接。
+
+> **注意**：Machine 侧的连接管理与网关 Pool 是两套独立职责。网关负责客户端数据进入 Machine 的连接 Binding；Machine 负责 Workflow 输出返回网关时的连接选择。它们不要求同一 Session 的双向数据使用同一条物理 WebSocket。
 
 ### 异常容错策略 (Fault Tolerance)
 *   **指数退避 (Exponential Backoff)**：当网关与 Pod 的数据链路断开时，会自动进入重连循环，重连时间间隔从 500ms 开始指数增加（最大 10s），直至 Pod 恢复。
-*   **双检查锁 (Double-Check Locking)**：在机器注册热路径上，使用 DCL 模式确保机器对象的原子性创建，避免大规模节点并发注册时的性能消耗。
+*   **Binding 保留**：数据连接重连期间，Session Binding 仍指向原 Connection 对象。连接恢复后，后续数据继续使用该路径；实时数据在连接不可用期间可能被丢弃，避免产生无界积压。
+*   **终止优先**：Machine 回传 Close 包表示该 Session 已终止。网关会先标记 Session 为终态，再关闭客户端连接并清理本地路由，避免将终止误判为可恢复断线而回发 Pause。
 *   **平滑迁移 (未来计划)**：目前 Pod 崩溃会导致正在转发的数据丢失。未来计划通过网关侧的小规模环形缓冲区，在 Pod 短暂断开时缓存关键信号。
 
 ---
@@ -85,4 +92,3 @@
     系统已提供基于 **Redis** 的 `WorkflowConfigManager` 实现。在多 Pod 分布式部署时，**必须** 开启 Redis 存储模式以确保所有节点之间的工作流配置实时同步。默认的文件存储模式仅适用于单机调试。
 5.  **缓冲区堆积**：
     当 Pod 处于 `Suspended`状态时，客户端若继续发送大量音频数据，网关会因为无法转发而丢弃数据包。
-

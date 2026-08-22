@@ -49,7 +49,7 @@ func (s SessionState) String() string {
 // It maps a client WebSocket connection to a specific backend machine.
 type Session struct {
 	key          protocol.SessionKey
-	conn         *Connection
+	binding      *SessionBinding
 	machine      *Machine
 	client       *websocket.Conn
 	createdAt    time.Time
@@ -59,15 +59,23 @@ type Session struct {
 }
 
 // NewSession creates a new session mapping for the given key.
-func NewSession(key protocol.SessionKey, conn *Connection, machine *Machine) *Session {
+func NewSession(key protocol.SessionKey, binding *SessionBinding, machine *Machine) *Session {
 	s := &Session{
 		key:       key,
-		conn:      conn,
+		binding:   binding,
 		machine:   machine,
 		createdAt: time.Now(),
 	}
+	s.state.Store(int32(SessionIdle))
 	s.lastActiveAt.Store(time.Now().UnixMilli())
 	return s
+}
+
+func (s *Session) Connection() *Connection {
+	if s.binding == nil {
+		return nil
+	}
+	return s.binding.Connection()
 }
 
 func (s *Session) State() SessionState {
@@ -98,13 +106,14 @@ func (s *Session) Close() {
 		_ = s.client.Close()
 	}
 
-	if s.conn == nil {
+	conn := s.Connection()
+	if conn == nil {
 		return
 	}
 	packet := protocol.AcquirePacket()
 	defer protocol.ReleasePacket(packet)
 	packet.Type = protocol.TypeClose
-	if err := s.conn.WritePacket(s.key, packet); err != nil && !errors.Is(err, ErrConnectionNotActive) {
+	if err := conn.WritePacket(s.key, packet); err != nil && !errors.Is(err, ErrConnectionNotActive) {
 		slog.Error("failed to write close packet", "error", err)
 	}
 }
@@ -119,11 +128,11 @@ func (s *Session) OnClientOpen(socket *websocket.Conn) {
 	clientConnections.Add(1)
 
 	// If count > 1, this is a reconnect. Notify the backend to resume.
-	if count > 1 && s.conn != nil {
+	if conn := s.Connection(); count > 1 && conn != nil {
 		packet := protocol.AcquirePacket()
 		defer protocol.ReleasePacket(packet)
 		packet.Type = protocol.TypeResume
-		if err := s.conn.WritePacket(s.key, packet); err != nil {
+		if err := conn.WritePacket(s.key, packet); err != nil {
 			slog.Error("failed to write resume packet", "error", err, "session", s.key)
 		}
 	}
@@ -137,13 +146,14 @@ func (s *Session) OnClientClose(socket *websocket.Conn, err error) {
 		return
 	}
 	s.Release()
-	if s.conn == nil {
+	conn := s.Connection()
+	if conn == nil {
 		return
 	}
 	packet := protocol.AcquirePacket()
 	defer protocol.ReleasePacket(packet)
 	packet.Type = protocol.TypePause
-	if err = s.conn.WritePacket(s.key, packet); err != nil {
+	if err = conn.WritePacket(s.key, packet); err != nil {
 		slog.Error("failed to write pause packet", "error", err, "session", s.key)
 	}
 }
@@ -172,17 +182,18 @@ func (s *Session) OnClientMessage(_ *websocket.Conn, messageType websocket.Messa
 		slog.Warn("gateway dropped client packet with invalid payload size", "session", s.key, "size", len(data))
 		return
 	}
-	if s.machine.State() != MachineStateActive || s.conn.State() != protocol.ConnectionActive {
+	conn := s.Connection()
+	if s.machine.State() != MachineStateActive || conn == nil || conn.State() != protocol.ConnectionActive {
 		// Log at Debug level to avoid log storm during pod suspension/reconnection
 		slog.Debug("gateway skipped forwarding client packet because upstream is not ready",
 			"session", s.key,
 			"machineState", s.machine.State(),
-			"connectionState", s.conn.State(),
+			"connectionState", connectionState(conn),
 		)
 		return
 	}
 	s.lastActiveAt.Store(time.Now().UnixMilli())
-	if err := s.conn.Write(s.key, data); err != nil {
+	if err := conn.Write(s.key, data); err != nil {
 		slog.Error("pool connection write failed", "error", err)
 	}
 }
@@ -248,11 +259,19 @@ func (m *SessionManager) Delete(key protocol.SessionKey) {
 	if s, ok := m.shards.Load(key); ok {
 		s.Close()
 		if s.machine != nil {
+			s.machine.Pool.Unbind(s.key)
 			s.machine.RemoveSession(s.key)
 		}
 		sessions.Add(-1)
 		m.shards.Delete(key)
 	}
+}
+
+func connectionState(conn *Connection) protocol.ConnectionState {
+	if conn == nil {
+		return protocol.ConnectionClosed
+	}
+	return conn.State()
 }
 
 func (m *SessionManager) DispatchMessage(key protocol.SessionKey, data []byte) {
@@ -268,13 +287,13 @@ func (m *SessionManager) DispatchMessage(key protocol.SessionKey, data []byte) {
 		return
 	}
 	if packet.Type == protocol.TypeClose {
-		// If the pod notifies the gateway to close the session, we explicitly close the client
-		// connection and update the state to SessionClosed. This prevents m.Delete(key) from
-		// triggering s.Close(), which would send an unnecessary loopback Close packet back to the pod.
+		// Mark the session terminal before closing the client socket. Its close callback must
+		// not treat this machine-initiated termination as a reconnectable disconnect and
+		// send a late Pause packet back to the machine.
+		session.state.Store(int32(SessionClosed))
 		if session.client != nil {
 			_ = session.client.Close()
 		}
-		session.state.Store(int32(SessionClosed))
 		m.Delete(key)
 	} else {
 		if session.State() != SessionReady || session.client == nil {
