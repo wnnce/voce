@@ -8,7 +8,15 @@ on:
       - dev
       - "feature/*"
       - "release/*"
+      - "refactor/*"
       - "fix/*"
+      - "hotfix/*"
+      - "chore/*"
+      - "docs/*"
+      - "test/*"
+      - "perf/*"
+      - "ci/*"
+      - "build/*"
   pull_request:
     branches: *branches
 
