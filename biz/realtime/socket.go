@@ -11,19 +11,6 @@ import (
 	"github.com/wnnce/voce/internal/schema"
 )
 
-var (
-	// Global counters for real-time monitoring and telemetry
-	activeConnections atomic.Int64
-	audioTrafficIn    atomic.Uint64
-	audioTrafficOut   atomic.Uint64
-)
-
-func GetMonitorCounters() (conn int64, in uint64, out uint64) {
-	return activeConnections.Load(),
-		audioTrafficIn.Load(),
-		audioTrafficOut.Load()
-}
-
 // SocketHandler manages the WebSocket connection and synchronizes its state with the workflow session.
 type SocketHandler struct {
 	gws.BuiltinEventHandler
@@ -58,8 +45,6 @@ func (s *SocketHandler) OnOpen(socket *gws.Conn) {
 
 	s.running.Store(true)
 
-	activeConnections.Add(1)
-
 	// Resume the workflow if it was paused from a previous session (Persistence Support)
 	if s.session.Workflow.State() == engine.WorkflowStatePaused {
 		if err := s.session.Workflow.Resume(); err != nil {
@@ -72,8 +57,6 @@ func (s *SocketHandler) OnOpen(socket *gws.Conn) {
 
 func (s *SocketHandler) OnClose(_ *gws.Conn, _ error) {
 	s.running.Store(false)
-
-	activeConnections.Add(-1)
 
 	if s.held {
 		s.session.Release()
@@ -111,7 +94,7 @@ func (s *SocketHandler) OnMessage(socket *gws.Conn, message *gws.Message) {
 		return
 	}
 
-	audioTrafficIn.Add(uint64(len(body)))
+	realtimeMetrics.websocketBytesReceived.Add(realtimeMetricContext, int64(len(body)))
 
 	switch packet.Type {
 	case protocol.TypeAudio:
@@ -154,7 +137,7 @@ func (s *SocketHandler) writeLoop() {
 			header := packet.Header()
 			payload := packet.Payload
 
-			audioTrafficOut.Add(uint64(len(header) + len(payload)))
+			realtimeMetrics.websocketBytesSent.Add(realtimeMetricContext, int64(len(header)+len(payload)))
 
 			slog.DebugContext(s.ctx, "Send packet to client", "type", packet.Type, "size", len(payload))
 			if err := s.socket.Writev(gws.OpcodeBinary, header, payload); err != nil {

@@ -15,7 +15,7 @@ type AppContainer struct {
 	Workflow *handler.WorkflowHandler
 	Session  *handler.SessionHandler
 	Plugin   *handler.PluginHandler
-	Monitor  *handler.MonitorHandler
+	Metrics  http.Handler
 	Machine  *handler.MachineHandler
 	Realtime *realtime.Handler
 	Grpc     pb.VoceServiceServer
@@ -34,7 +34,9 @@ func RegisterVoceRouter(router chi.Router, container AppContainer) {
 	})
 
 	router.Get("/plugins", httpx.Wrap(container.Plugin.ListPlugins))
-	router.Get("/monitor", httpx.Wrap(container.Monitor.GetMonitorStats))
+	if container.Metrics != nil {
+		router.Handle("/metrics", container.Metrics)
+	}
 
 	router.Route("/sessions", func(r chi.Router) {
 		r.Post("/", httpx.Wrap(container.Session.CreateWorkflowSession))

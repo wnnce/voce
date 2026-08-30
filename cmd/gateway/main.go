@@ -27,13 +27,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	h, cleanup, err := InitGateway(ctx, cfg)
+	h, metrics, cleanup, err := InitGateway(ctx, cfg)
 	if err != nil {
 		panic(err)
 	}
 	defer cleanup()
 
-	router := route.RegisterGatewayRouter(h)
+	router := route.RegisterGatewayRouter(h, metrics)
 	nbServer := nbhttp.NewServer(nbhttp.Config{
 		Network: "tcp",
 		Addrs:   []string{cfg.Gateway.Address()},

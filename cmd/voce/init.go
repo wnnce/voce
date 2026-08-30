@@ -14,7 +14,9 @@ import (
 	"github.com/wnnce/voce/internal/machine"
 	"github.com/wnnce/voce/internal/metadata"
 	"github.com/wnnce/voce/internal/remote"
+	"github.com/wnnce/voce/internal/telemetry"
 	"github.com/wnnce/voce/pkg/logging"
+	"go.opentelemetry.io/otel"
 )
 
 type appBase struct {
@@ -23,6 +25,7 @@ type appBase struct {
 	wm        engine.WorkflowConfigManager
 	rm        *remote.Manager
 	store     *engine.PluginStore
+	telemetry *telemetry.Telemetry
 }
 
 func InitApplication(ctx context.Context, cfg config.VoceBootstrap) (route.AppContainer, func(), error) {
@@ -42,6 +45,9 @@ func InitApplication(ctx context.Context, cfg config.VoceBootstrap) (route.AppCo
 			base.rm.Shutdown()
 		}
 		base.sm.Stop()
+		if err := base.telemetry.Shutdown(context.Background()); err != nil {
+			slog.Error("telemetry shutdown failed", "error", err)
+		}
 	}
 	return base.container, cleanup, nil
 }
@@ -57,6 +63,15 @@ func initBaseApplication(ctx context.Context, cfg config.VoceBootstrap) (*appBas
 	}
 	slog.SetDefault(logger)
 
+	metrics, err := telemetry.New(ctx, telemetry.Config{
+		ServiceName: cfg.Server.Name,
+		Environment: cfg.Server.Environment,
+	})
+	if err != nil {
+		return nil, err
+	}
+	otel.SetMeterProvider(metrics.MeterProvider())
+
 	store := engine.NewPluginStore(engine.LocalPluginResource())
 
 	var wm engine.WorkflowConfigManager
@@ -66,6 +81,7 @@ func initBaseApplication(ctx context.Context, cfg config.VoceBootstrap) (*appBas
 
 		rdb, er := dal.NewRedisClient(rCtx, cfg.Redis)
 		if er != nil {
+			_ = metrics.Shutdown(ctx)
 			return nil, er
 		}
 		wm = engine.NewRedisWorkflowConfigManager(rdb, store)
@@ -80,10 +96,12 @@ func initBaseApplication(ctx context.Context, cfg config.VoceBootstrap) (*appBas
 	sm := engine.NewSessionManager(wm, store, 1*time.Minute)
 
 	base := &appBase{
-		sm:    sm,
-		wm:    wm,
-		store: store,
+		sm:        sm,
+		wm:        wm,
+		store:     store,
+		telemetry: metrics,
 	}
+	base.container.Metrics = metrics.Handler()
 
 	if hasEnabledPluginServers(cfg.Server.PluginServers) {
 		base.rm = remote.NewManager(ctx, store)
@@ -92,7 +110,6 @@ func initBaseApplication(ctx context.Context, cfg config.VoceBootstrap) (*appBas
 
 	base.container.Workflow = handler.NewWorkflowHandler(wm)
 	base.container.Plugin = handler.NewPluginHandler(store)
-	base.container.Monitor = handler.NewMonitorHandler(sm)
 	base.container.Realtime = realtime.NewHandler(sm)
 	base.container.Grpc = realtime.NewStreamService(sm)
 	return base, nil

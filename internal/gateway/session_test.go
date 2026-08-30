@@ -104,6 +104,24 @@ func TestSessionManagerDeleteUnbindsPool(t *testing.T) {
 	assert.Empty(t, machine.sessions)
 }
 
+func TestSessionManagerStoreDeleteIsIdempotent(t *testing.T) {
+	sm := newTestSessionManager()
+	key := testSessionKey(3)
+	sm.Store(NewSession(key, nil, nil))
+	assert.EqualValues(t, 1, sm.Count())
+
+	// Replacing the same key must not create a second active session.
+	sm.Store(NewSession(key, nil, nil))
+	assert.EqualValues(t, 1, sm.Count())
+
+	sm.Delete(key)
+	assert.Zero(t, sm.Count())
+
+	// A repeated delete must not decrement the active count again.
+	sm.Delete(key)
+	assert.Zero(t, sm.Count())
+}
+
 func TestSessionManagerDispatchCloseCleansGatewayResources(t *testing.T) {
 	pool := newTestConnectionPool(1, 0)
 	defer pool.Shutdown()

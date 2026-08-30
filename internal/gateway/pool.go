@@ -125,6 +125,7 @@ var _ ConnectionObserver = (*ConnectionPool)(nil)
 type pooledConnection struct {
 	id        uint64
 	conn      *Connection
+	state     protocol.ConnectionState
 	load      int
 	priority  connectionPriority
 	index     int
@@ -216,6 +217,7 @@ func (p *ConnectionPool) Unbind(key protocol.SessionKey) {
 	delete(item.sessions, key)
 	if item.load > 0 {
 		item.load--
+		gatewayPoolMetrics.sessionsRouted.Add(gatewayPoolMetricContext, -1)
 		p.refreshLocked(item)
 	}
 	if item.load == 0 {
@@ -237,6 +239,12 @@ func (p *ConnectionPool) Shutdown() {
 	}
 	for _, binding := range p.bindings {
 		binding.conn.Store(nil)
+	}
+	for _, item := range p.connections {
+		p.recordConnectionRemovalLocked(item)
+	}
+	for range p.routes {
+		gatewayPoolMetrics.sessionsRouted.Add(gatewayPoolMetricContext, -1)
 	}
 	clear(p.connections)
 	clear(p.routes)
@@ -274,6 +282,7 @@ func (p *ConnectionPool) startMinConnections() {
 	starts := 0
 	for len(p.connections)+p.pendingDials < p.minConns {
 		p.pendingDials++
+		gatewayPoolMetrics.pendingDials.Add(gatewayPoolMetricContext, 1)
 		starts++
 	}
 	p.mu.Unlock()
@@ -298,6 +307,7 @@ func (p *ConnectionPool) reserveDialLocked() bool {
 		return false
 	}
 	p.pendingDials++
+	gatewayPoolMetrics.pendingDials.Add(gatewayPoolMetricContext, 1)
 	return true
 }
 
@@ -306,12 +316,14 @@ func (p *ConnectionPool) startDial() {
 	if err != nil {
 		p.mu.Lock()
 		p.pendingDials--
+		gatewayPoolMetrics.pendingDials.Add(gatewayPoolMetricContext, -1)
 		p.mu.Unlock()
 		return
 	}
 
 	p.mu.Lock()
 	p.pendingDials--
+	gatewayPoolMetrics.pendingDials.Add(gatewayPoolMetricContext, -1)
 	if p.closed.Load() {
 		p.mu.Unlock()
 		conn.Close()
@@ -321,8 +333,14 @@ func (p *ConnectionPool) startDial() {
 	item := &pooledConnection{
 		id:       p.nextID,
 		conn:     conn,
+		state:    conn.State(),
 		index:    len(p.queue),
 		sessions: make(map[protocol.SessionKey]struct{}),
+	}
+	if item.state == protocol.ConnectionActive {
+		gatewayPoolMetrics.connectionsActive.Add(gatewayPoolMetricContext, 1)
+	} else if item.state == protocol.ConnectionConnecting {
+		gatewayPoolMetrics.connectionsConnecting.Add(gatewayPoolMetricContext, 1)
 	}
 	item.priority = p.priorityLocked(item)
 	p.connections[conn] = item
@@ -371,7 +389,26 @@ func (p *ConnectionPool) syncConnectionState(conn *Connection) {
 	if item == nil {
 		return
 	}
-	if conn.State() == protocol.ConnectionClosed {
+	state := conn.State()
+	if item.state != state {
+		switch item.state {
+		case protocol.ConnectionActive:
+			gatewayPoolMetrics.connectionsActive.Add(gatewayPoolMetricContext, -1)
+		case protocol.ConnectionConnecting:
+			gatewayPoolMetrics.connectionsConnecting.Add(gatewayPoolMetricContext, -1)
+		}
+		switch state {
+		case protocol.ConnectionActive:
+			gatewayPoolMetrics.connectionsActive.Add(gatewayPoolMetricContext, 1)
+		case protocol.ConnectionConnecting:
+			gatewayPoolMetrics.connectionsConnecting.Add(gatewayPoolMetricContext, 1)
+		}
+		if item.state == protocol.ConnectionActive && state == protocol.ConnectionConnecting {
+			gatewayPoolMetrics.reconnects.Add(gatewayPoolMetricContext, 1)
+		}
+		item.state = state
+	}
+	if state == protocol.ConnectionClosed {
 		p.removeLocked(item)
 		p.assignPendingLocked()
 		return
@@ -391,6 +428,7 @@ func (p *ConnectionPool) attachLocked(key protocol.SessionKey, binding *SessionB
 	p.routes[key] = item
 	item.sessions[key] = struct{}{}
 	item.load++
+	gatewayPoolMetrics.sessionsRouted.Add(gatewayPoolMetricContext, 1)
 	item.idleSince = time.Time{}
 	binding.conn.Store(item.conn)
 	p.refreshLocked(item)
@@ -417,15 +455,27 @@ func (p *ConnectionPool) removeLocked(item *pooledConnection) {
 	if item.index >= 0 {
 		heap.Remove(&p.queue, item.index)
 	}
+	p.recordConnectionRemovalLocked(item)
 	for key := range item.sessions {
 		if p.routes[key] == item {
 			delete(p.routes, key)
+			gatewayPoolMetrics.sessionsRouted.Add(gatewayPoolMetricContext, -1)
 			if binding := p.bindings[key]; binding != nil {
 				binding.conn.Store(nil)
 			}
 		}
 	}
 	clear(item.sessions)
+}
+
+func (p *ConnectionPool) recordConnectionRemovalLocked(item *pooledConnection) {
+	switch item.state {
+	case protocol.ConnectionActive:
+		gatewayPoolMetrics.connectionsActive.Add(gatewayPoolMetricContext, -1)
+	case protocol.ConnectionConnecting:
+		gatewayPoolMetrics.connectionsConnecting.Add(gatewayPoolMetricContext, -1)
+	}
+	item.state = protocol.ConnectionClosed
 }
 
 func (p *ConnectionPool) cleanupLoop() {

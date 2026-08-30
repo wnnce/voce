@@ -7,12 +7,6 @@ import (
 	"github.com/wnnce/voce/pkg/pool"
 )
 
-var (
-	activeSDVideoCount  atomic.Int64
-	activeHDVideoCount  atomic.Int64
-	activeFHDVideoCount atomic.Int64
-)
-
 const (
 	sdVideoPixels  = 640 * 480
 	hdVideoPixels  = 1280 * 720
@@ -47,18 +41,6 @@ var (
 		}
 	})
 )
-
-func LoadActiveSDVideoCount() int64 {
-	return activeSDVideoCount.Load()
-}
-
-func LoadActiveHDVideoCount() int64 {
-	return activeHDVideoCount.Load()
-}
-
-func LoadActiveFHDVideoCount() int64 {
-	return activeFHDVideoCount.Load()
-}
 
 // VideoView is the shared read-only base for video objects.
 // It combines View (property access + name) with video-specific read methods and reference counting.
@@ -230,26 +212,26 @@ func (b *builtinVideo) ReadOnly() Video {
 func acquireVideo(height, width int) *builtinVideo {
 	pixels := height * width
 	if pixels <= sdVideoPixels {
-		activeSDVideoCount.Add(1)
+		schemaMetrics.videoSDActive.Add(metricsContext, 1)
 		return sdVideoPool.Acquire()
 	} else if pixels <= hdVideoPixels {
-		activeHDVideoCount.Add(1)
+		schemaMetrics.videoHDActive.Add(metricsContext, 1)
 		return hdVideoPool.Acquire()
 	}
-	activeFHDVideoCount.Add(1)
+	schemaMetrics.videoFHDActive.Add(metricsContext, 1)
 	return fhdVideoPool.Acquire()
 }
 
 func releaseVideo(frame *builtinVideo) {
 	pixels := frame.width * frame.height
 	if pixels <= sdVideoPixels {
-		activeSDVideoCount.Add(-1)
+		schemaMetrics.videoSDActive.Add(metricsContext, -1)
 		sdVideoPool.Release(frame)
 	} else if pixels <= hdVideoPixels {
-		activeHDVideoCount.Add(-1)
+		schemaMetrics.videoHDActive.Add(metricsContext, -1)
 		hdVideoPool.Release(frame)
 	} else {
-		activeFHDVideoCount.Add(-1)
+		schemaMetrics.videoFHDActive.Add(metricsContext, -1)
 		fhdVideoPool.Release(frame)
 	}
 }

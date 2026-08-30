@@ -7,44 +7,16 @@ import (
 )
 
 func TestAudio_Lifecycle(t *testing.T) {
-	initialCount := LoadActiveAudioCount()
-
-	t.Run("New and Release", func(t *testing.T) {
-		audio := NewAudio("test.wav", 16000, 1)
-		assert.Equal(t, initialCount+1, LoadActiveAudioCount())
-		assert.Equal(t, "test.wav", audio.Name())
-
-		audio.Release()
-		assert.Equal(t, initialCount, LoadActiveAudioCount())
-	})
-
 	t.Run("Reference Counting", func(t *testing.T) {
-		audio := NewAudio("ref.wav", 16000, 1)
+		audio := NewAudio("ref.wav", 16000, 1).(*builtinAudio)
+
 		audio.Retain()
-		assert.Equal(t, initialCount+1, LoadActiveAudioCount())
 
 		audio.Release()
-		assert.Equal(t, initialCount+1, LoadActiveAudioCount(), "Should not recycle yet")
+		assert.Equal(t, "ref.wav", audio.Name(), "object must stay live while retained")
 
 		audio.Release()
-		assert.Equal(t, initialCount, LoadActiveAudioCount(), "Should recycle now")
-	})
-
-	t.Run("Count with Mutable Clone", func(t *testing.T) {
-		initial := LoadActiveAudioCount()
-		audio := NewAudio("cow.wav", 16000, 1)
-		ro := audio.ReadOnly()
-		assert.Equal(t, initial+1, LoadActiveAudioCount())
-
-		mutable := ro.Mutable()
-		assert.NotSame(t, ro, mutable)
-		assert.Equal(t, initial+2, LoadActiveAudioCount(), "Mutable clone should create a new active object")
-
-		mutable.Release()
-		assert.Equal(t, initial+1, LoadActiveAudioCount())
-
-		ro.Release()
-		assert.Equal(t, initial, LoadActiveAudioCount())
+		assert.Empty(t, audio.Name(), "object is reset when the final reference is released")
 	})
 }
 

@@ -15,7 +15,6 @@ import (
 
 var (
 	clientConnections atomic.Int64
-	sessions          atomic.Int64
 )
 
 type SessionState int32
@@ -126,6 +125,7 @@ func (s *Session) OnClientOpen(socket *websocket.Conn) {
 	s.lastActiveAt.Store(time.Now().UnixMilli())
 	s.client = socket
 	clientConnections.Add(1)
+	gatewayClientMetrics.connectionsActive.Add(gatewayClientMetricContext, 1)
 
 	// If count > 1, this is a reconnect. Notify the backend to resume.
 	if conn := s.Connection(); count > 1 && conn != nil {
@@ -142,6 +142,7 @@ func (s *Session) OnClientClose(socket *websocket.Conn, err error) {
 	slog.Warn("client disconnected", "session", s.key, "error", err)
 	s.client = nil
 	clientConnections.Add(-1)
+	gatewayClientMetrics.connectionsActive.Add(gatewayClientMetricContext, -1)
 	if s.State() == SessionClosed {
 		return
 	}
@@ -161,6 +162,7 @@ func (s *Session) OnClientClose(socket *websocket.Conn, err error) {
 func (s *Session) OnClientPing(socket *websocket.Conn, payload string) {
 	s.lastActiveAt.Store(time.Now().UnixMilli())
 	if err := socket.WriteMessage(websocket.PongMessage, nil); err != nil {
+		gatewayClientMetrics.writeErrors.Add(gatewayClientMetricContext, 1)
 		slog.Error("failed to send pong to client", "error", err, "session", s.key)
 	}
 }
@@ -182,6 +184,8 @@ func (s *Session) OnClientMessage(_ *websocket.Conn, messageType websocket.Messa
 		slog.Warn("gateway dropped client packet with invalid payload size", "session", s.key, "size", len(data))
 		return
 	}
+	gatewayClientMetrics.bytesReceived.Add(gatewayClientMetricContext, int64(len(data)))
+	gatewayClientMetrics.packetsReceived.Add(gatewayClientMetricContext, 1)
 	conn := s.Connection()
 	if s.machine.State() != MachineStateActive || conn == nil || conn.State() != protocol.ConnectionActive {
 		// Log at Debug level to avoid log storm during pod suspension/reconnection
@@ -247,8 +251,17 @@ func (m *SessionManager) cleanup(timeout time.Duration) {
 }
 
 func (m *SessionManager) Store(s *Session) {
-	m.shards.Store(s.key, s)
-	sessions.Add(1)
+	var added bool
+	m.shards.Update(s.key, func(existing *Session, ok bool) (*Session, bool) {
+		if !ok {
+			added = true
+		}
+		return s, true
+	})
+	if !added {
+		return
+	}
+	gatewaySessionMetrics.addActive(1)
 }
 
 func (m *SessionManager) Load(key protocol.SessionKey) (*Session, bool) {
@@ -256,15 +269,32 @@ func (m *SessionManager) Load(key protocol.SessionKey) (*Session, bool) {
 }
 
 func (m *SessionManager) Delete(key protocol.SessionKey) {
-	if s, ok := m.shards.Load(key); ok {
-		s.Close()
-		if s.machine != nil {
-			s.machine.Pool.Unbind(s.key)
-			s.machine.RemoveSession(s.key)
+	var s *Session
+	removed := m.shards.Update(key, func(existing *Session, ok bool) (*Session, bool) {
+		if !ok {
+			return nil, false
 		}
-		sessions.Add(-1)
-		m.shards.Delete(key)
+		s = existing
+		return existing, false
+	})
+	if !removed {
+		return
 	}
+	s.Close()
+	if s.machine != nil {
+		s.machine.Pool.Unbind(s.key)
+		s.machine.RemoveSession(s.key)
+	}
+	gatewaySessionMetrics.addActive(-1)
+}
+
+func (m *SessionManager) Count() int64 {
+	var count int64
+	m.shards.Range(func(_ protocol.SessionKey, _ *Session) bool {
+		count++
+		return true
+	})
+	return count
 }
 
 func connectionState(conn *Connection) protocol.ConnectionState {
@@ -306,7 +336,11 @@ func (m *SessionManager) DispatchMessage(key protocol.SessionKey, data []byte) {
 			return
 		}
 		if err := session.client.WriteMessage(websocket.BinaryMessage, data); err != nil {
+			gatewayClientMetrics.writeErrors.Add(gatewayClientMetricContext, 1)
 			slog.Error("failed to write message to client", "error", err, "session", key)
+		} else {
+			gatewayClientMetrics.bytesSent.Add(gatewayClientMetricContext, int64(len(data)))
+			gatewayClientMetrics.packetsSent.Add(gatewayClientMetricContext, 1)
 		}
 	}
 }
