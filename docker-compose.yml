@@ -3,6 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: voce-runtime
     image: voce:latest
     container_name: voce-server
     restart: always
@@ -10,7 +11,7 @@ services:
       - "7001:7001"
       - "7002:7002"
     volumes:
-      - ./configs/config.yaml:/app/config.yaml:ro
+      - ./configs/config.yaml:/etc/voce/config.yaml:ro
       - ./configs/workflows:/app/configs/workflows
     healthcheck:
       test:

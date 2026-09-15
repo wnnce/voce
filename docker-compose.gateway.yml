@@ -3,14 +3,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: gateway-runtime
+      target: voce-gateway-runtime
     image: voce-gateway:latest
     container_name: voce-gateway
     restart: always
     ports:
       - "7001:7001"
     volumes:
-      - ./configs/gateway.yaml:/app/config.yaml:ro
+      - ./configs/gateway.yaml:/etc/voce/config.yaml:ro
     healthcheck:
       test:
         ["CMD-SHELL", "wget -q --spider http://localhost:7001/health || exit 1"]
@@ -31,7 +31,7 @@ services:
       - "7002:7002"
       - "7003:7003"
     volumes:
-      - ./configs/voce.yaml:/app/config.yaml:ro
+      - ./configs/voce.yaml:/etc/voce/config.yaml:ro
       - ./configs/workflows:/app/configs/workflows
     healthcheck:
       test:

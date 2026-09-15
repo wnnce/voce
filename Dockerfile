@@ -3,13 +3,13 @@
 # ─── Stage 1: Build Frontend ──────────────────────────────────────────────────
 FROM node:24-bookworm-slim AS frontend-builder
 WORKDIR /app
-COPY clients/web/package.json ./clients/web/
-RUN npm install -g pnpm && cd clients/web && pnpm install
+COPY clients/web/package.json clients/web/pnpm-lock.yaml ./clients/web/
+RUN npm install -g pnpm@9 && cd clients/web && pnpm install --frozen-lockfile
 COPY clients/web/ ./clients/web/
 RUN cd clients/web && pnpm build
 
 # ─── Stage 2: Build Backend ───────────────────────────────────────────────────
-FROM golang:1.25-bookworm AS backend-builder
+FROM golang:1.27-bookworm AS backend-builder
 
 # Install build tools and system dependencies (FFmpeg, git-lfs)
 RUN apt-get update && apt-get install -y \
@@ -29,7 +29,7 @@ RUN go mod download
 
 # Prepare plugin dependencies (e.g., ten-vad)
 COPY . .
-RUN git lfs install && make deps
+RUN git lfs install --system && make deps
 
 # Embed frontend and build the backend binaries
 COPY --from=frontend-builder /app/clients/web/dist ./clients/web/dist
@@ -55,9 +55,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+RUN mkdir -p /etc/voce
 
 # Copy binaries and library files
-COPY --from=backend-builder /app/voce ./voce
+COPY --from=backend-builder /app/voce /usr/local/bin/voce
 COPY --from=backend-builder /app/libs/ten-vad/lib/Linux/x64/libten_vad.so /usr/local/lib/
 RUN ldconfig
 
@@ -68,24 +69,24 @@ COPY --from=backend-builder /app/libs/ten-vad/src/onnx_model/ten-vad.onnx ./src/
 # Environment variables for execution
 ENV LD_LIBRARY_PATH=/usr/local/lib
 
-EXPOSE 7002
-EXPOSE 7003
+EXPOSE 7001 7002 7003
 
-ENTRYPOINT ["./voce"]
-CMD ["-c", "/app/config.yaml"]
+ENTRYPOINT ["voce"]
+CMD ["--config", "/etc/voce/config.yaml"]
 
 # ─── Stage 4: Gateway Runtime Image ───────────────────────────────────────────
-FROM alpine:latest AS gateway-runtime
+FROM alpine:latest AS voce-gateway-runtime
 
 # Install basic runtime dependencies
 RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
+RUN mkdir -p /etc/voce
 
 # Copy static gateway binary
-COPY --from=backend-builder /app/voce-gateway ./voce-gateway
+COPY --from=backend-builder /app/voce-gateway /usr/local/bin/voce-gateway
 
 EXPOSE 7001
 
-ENTRYPOINT ["./voce-gateway"]
-CMD ["-c", "/app/config.yaml"]
+ENTRYPOINT ["voce-gateway"]
+CMD ["--config", "/etc/voce/config.yaml"]

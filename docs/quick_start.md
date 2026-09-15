@@ -84,7 +84,7 @@ docker build -t voce:latest .
 docker run -d \
   --name voce-server \
   -p 7001:7001 -p 7002:7002 \
-  -v $(pwd)/configs/config.yaml:/app/config.yaml:ro \
+  -v $(pwd)/configs/config.yaml:/etc/voce/config.yaml:ro \
   -v $(pwd)/configs/workflows:/app/configs/workflows \
   voce:latest
 ```
