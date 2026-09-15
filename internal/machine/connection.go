@@ -31,9 +31,17 @@ func NewConnection(manager *ConnectionManager, handle MessageHandler) *Connectio
 func (c *Connection) Write(key protocol.SessionKey, packet *protocol.Packet) error {
 	socket := c.socket.Load()
 	if c.State() != protocol.ConnectionActive || socket == nil {
+		machinePoolMetrics.writeErrors.Add(machinePoolMetricContext, 1)
 		return errors.New("connection is not active")
 	}
-	return socket.Writev(gws.OpcodeBinary, key[:], packet.Header(), packet.Payload)
+	header := packet.Header()
+	if err := socket.Writev(gws.OpcodeBinary, key[:], header, packet.Payload); err != nil {
+		machinePoolMetrics.writeErrors.Add(machinePoolMetricContext, 1)
+		return err
+	}
+	machinePoolMetrics.bytesSent.Add(machinePoolMetricContext, int64(len(key)+len(header)+len(packet.Payload)))
+	machinePoolMetrics.packetsSent.Add(machinePoolMetricContext, 1)
+	return nil
 }
 
 func (c *Connection) State() protocol.ConnectionState {
@@ -60,8 +68,13 @@ func (c *Connection) OnClose(_ *gws.Conn, err error) {
 func (c *Connection) OnMessage(_ *gws.Conn, message *gws.Message) {
 	body := message.Bytes()
 	defer message.Close()
-	if c.handle == nil || message.Opcode != gws.OpcodeBinary || len(body) < protocol.SessionKeySize {
+	if message.Opcode != gws.OpcodeBinary || len(body) < protocol.SessionKeySize {
 		slog.Warn("machine dropped invalid pool message", "opcode", message.Opcode, "size", len(body), "hasHandler", c.handle != nil)
+		return
+	}
+	machinePoolMetrics.bytesReceived.Add(machinePoolMetricContext, int64(len(body)))
+	machinePoolMetrics.packetsReceived.Add(machinePoolMetricContext, 1)
+	if c.handle == nil {
 		return
 	}
 	key := protocol.SessionKey(body[:protocol.SessionKeySize])

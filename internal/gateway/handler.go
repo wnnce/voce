@@ -1,15 +1,12 @@
 package gateway
 
 import (
-	"context"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"runtime"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/bytedance/sonic"
@@ -17,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/lesismal/nbio/nbhttp/websocket"
 	"github.com/wnnce/voce/biz/handler"
-	"github.com/wnnce/voce/biz/types"
 	"github.com/wnnce/voce/internal/errcode"
 	"github.com/wnnce/voce/internal/protocol"
 	"github.com/wnnce/voce/pkg/httpx"
@@ -62,7 +58,7 @@ func (h *Handler) HandleState(w http.ResponseWriter, _ *http.Request) error {
 		Machines:          len(machines),
 		ActiveMachines:    activeMachines,
 		ClientConnections: clientConnections.Load(),
-		Sessions:          sessions.Load(),
+		Sessions:          h.sm.Count(),
 		MachineStates:     machines,
 	}))
 }
@@ -74,96 +70,6 @@ func (h *Handler) ProxyToAny(w http.ResponseWriter, r *http.Request) error {
 	}
 	h.proxyRequest(w, r, machine)
 	return nil
-}
-
-func (h *Handler) HandleMonitorAggregate(w http.ResponseWriter, _ *http.Request) error {
-	var addrs []string
-	h.mm.RangeMachines(func(_ string, machine *Machine) bool {
-		if machine.State() == MachineStateActive {
-			addrs = append(addrs, machine.Address())
-		}
-		return true
-	})
-
-	statsList := make([]*types.MonitorStats, len(addrs))
-	var wg sync.WaitGroup
-	for i, addr := range addrs {
-		wg.Add(1)
-		go func(i int, addr string) {
-			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-			defer cancel()
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/monitor", nil)
-			if err != nil {
-				return
-			}
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				return
-			}
-			defer resp.Body.Close()
-
-			var wrapper result.Result[types.MonitorStats]
-			if err = sonic.ConfigDefault.NewDecoder(resp.Body).Decode(&wrapper); err == nil {
-				statsList[i] = &wrapper.Data
-			}
-		}(i, addr)
-	}
-	wg.Wait()
-
-	summary := types.MonitorStats{
-		ActiveSessions:    sessions.Load(),
-		ActiveConnections: clientConnections.Load(),
-		Timestamp:         time.Now().UnixMilli(),
-	}
-
-	for _, stats := range statsList {
-		if stats == nil {
-			continue
-		}
-		summary.Goroutines += stats.Goroutines
-		summary.HeapAlloc += stats.HeapAlloc
-		summary.HeapIdle += stats.HeapIdle
-		summary.HeapInuse += stats.HeapInuse
-		summary.StackInuse += stats.StackInuse
-		summary.SystemMem += stats.SystemMem
-		summary.NumGC += stats.NumGC
-		summary.PauseTotalNs += stats.PauseTotalNs
-		summary.ActiveAudioCount += stats.ActiveAudioCount
-		summary.ActiveSDVideoCount += stats.ActiveSDVideoCount
-		summary.ActiveHDVideoCount += stats.ActiveHDVideoCount
-		summary.ActiveFHDVideoCount += stats.ActiveFHDVideoCount
-		summary.AudioTrafficIn += stats.AudioTrafficIn
-		summary.AudioTrafficOut += stats.AudioTrafficOut
-		if stats.LastGCTime > summary.LastGCTime {
-			summary.LastGCTime = stats.LastGCTime
-		}
-	}
-
-	return httpx.JSON(w, http.StatusOK, result.SuccessData(summary))
-}
-
-func (h *Handler) HandleMonitor(w http.ResponseWriter, _ *http.Request) error {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-
-	stats := &types.MonitorStats{
-		Goroutines:   runtime.NumGoroutine(),
-		HeapAlloc:    m.HeapAlloc,
-		HeapIdle:     m.HeapIdle,
-		HeapInuse:    m.HeapInuse,
-		StackInuse:   m.StackInuse,
-		NumGC:        m.NumGC,
-		PauseTotalNs: m.PauseTotalNs,
-		LastGCTime:   time.Unix(0, int64(m.LastGC)).Format(time.RFC3339),
-		SystemMem:    m.Sys,
-
-		ActiveSessions:    sessions.Load(),
-		ActiveConnections: clientConnections.Load(),
-		Timestamp:         time.Now().UnixMilli(),
-	}
-
-	return httpx.JSON(w, http.StatusOK, result.SuccessData(stats))
 }
 
 func (h *Handler) HandleSessionCreate(w http.ResponseWriter, r *http.Request) error {

@@ -18,7 +18,6 @@ const (
 )
 
 var (
-	activeAudioCount atomic.Int64
 	// audioPool reduces GC pressure by recycling large audio buffers.
 	audioPool = pool.NewTypedPool[*builtinAudio](func() *builtinAudio {
 		return &builtinAudio{
@@ -28,10 +27,6 @@ var (
 		}
 	})
 )
-
-func LoadActiveAudioCount() int64 {
-	return activeAudioCount.Load()
-}
 
 // AudioView is the shared read-only base for audio objects.
 // It combines View (property access + name) with audio-specific read methods and reference counting.
@@ -75,7 +70,7 @@ type builtinAudio struct {
 }
 
 func NewAudio(name string, sampleRate, channels int) MutableAudio {
-	activeAudioCount.Add(1)
+	schemaMetrics.audioActive.Add(metricsContext, 1)
 	val := audioPool.Acquire()
 	val.name = name
 	val.sampleRate = sampleRate
@@ -96,7 +91,7 @@ func (b *builtinAudio) Release() {
 }
 
 func (b *builtinAudio) Recycle() {
-	activeAudioCount.Add(-1)
+	schemaMetrics.audioActive.Add(metricsContext, -1)
 	b.resetReadOnly()
 	if cap(b.builtinProperties.entries) >= entriesRecycleCap {
 		b.builtinProperties.entries = make([]entry, 0)

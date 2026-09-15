@@ -89,6 +89,7 @@ func newPoolConnection(
 
 // Connect initiates the WebSocket handshake.
 func (c *Connection) Connect() error {
+	gatewayPoolMetrics.dials.Add(gatewayPoolMetricContext, 1)
 	slog.Info("gateway dialing machine pool", "machineID", c.machineID, "url", c.addr.String())
 	//nolint:bodyclose // nbio
 	_, _, err := c.dialer.DialContext(c.ctx, c.addr.String(), nil)
@@ -117,7 +118,12 @@ func (c *Connection) reconnectLoop() {
 }
 
 func (c *Connection) OnMessage(socket *websocket.Conn, messageType websocket.MessageType, data []byte) {
-	if messageType != websocket.BinaryMessage || len(data) < protocol.SessionKeySize || c.dispatcher == nil {
+	if messageType != websocket.BinaryMessage || len(data) < protocol.SessionKeySize {
+		return
+	}
+	gatewayPoolMetrics.bytesReceived.Add(gatewayPoolMetricContext, int64(len(data)))
+	gatewayPoolMetrics.packetsReceived.Add(gatewayPoolMetricContext, 1)
+	if c.dispatcher == nil {
 		return
 	}
 	key := protocol.SessionKey(data[:protocol.SessionKeySize])
@@ -173,6 +179,7 @@ func (c *Connection) Write(key protocol.SessionKey, data []byte) error {
 func (c *Connection) write(key protocol.SessionKey, bs ...[]byte) error {
 	socket := c.socket.Load()
 	if c.State() != protocol.ConnectionActive || socket == nil {
+		gatewayPoolMetrics.writeErrors.Add(gatewayPoolMetricContext, 1)
 		return ErrConnectionNotActive
 	}
 	if len(bs) == 0 {
@@ -193,7 +200,13 @@ func (c *Connection) write(key protocol.SessionKey, bs ...[]byte) error {
 	for _, b := range bs {
 		offset += copy(buffer.Buf[offset:], b)
 	}
-	return socket.WriteMessage(websocket.BinaryMessage, buffer.Buf)
+	if err := socket.WriteMessage(websocket.BinaryMessage, buffer.Buf); err != nil {
+		gatewayPoolMetrics.writeErrors.Add(gatewayPoolMetricContext, 1)
+		return err
+	}
+	gatewayPoolMetrics.bytesSent.Add(gatewayPoolMetricContext, int64(len(buffer.Buf)))
+	gatewayPoolMetrics.packetsSent.Add(gatewayPoolMetricContext, 1)
+	return nil
 }
 
 func (c *Connection) State() protocol.ConnectionState {

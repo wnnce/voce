@@ -102,7 +102,7 @@ func (s *StreamService) writeLoop(
 				slog.ErrorContext(ctx, "grpc send failed", "error", err)
 				return
 			}
-			audioTrafficOut.Add(uint64(len(packet.Payload)))
+			realtimeMetrics.grpcBytesSent.Add(realtimeMetricContext, int64(len(packet.Payload)))
 			protocol.ReleasePacket(packet)
 		}
 	}
@@ -135,7 +135,7 @@ func (s *StreamService) readLoop(
 		case protocol.TypeAudio:
 			audio := schema.NewAudio("audio", engine.AudioSampleRate, engine.AudioChannels)
 			audio.SetBytes(req.Payload)
-			audioTrafficIn.Add(uint64(len(req.Payload)))
+			realtimeMetrics.grpcBytesReceived.Add(realtimeMetricContext, int64(len(req.Payload)))
 
 			if err = session.Workflow.SendToHead(audio.ReadOnly()); err != nil {
 				audio.Release()

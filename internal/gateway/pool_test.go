@@ -419,6 +419,7 @@ func addTestConnectionWithState(p *ConnectionPool, state protocol.ConnectionStat
 	}
 	p.mu.Lock()
 	p.pendingDials++
+	gatewayPoolMetrics.pendingDials.Add(gatewayPoolMetricContext, 1)
 	p.mu.Unlock()
 	p.startDial()
 	p.newConnection = newConnection

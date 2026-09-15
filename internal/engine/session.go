@@ -139,8 +139,7 @@ func (sm *SessionManager) startCleanupTicker() {
 
 func (sm *SessionManager) Stop() {
 	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
+	count := len(sm.sessions)
 	for _, s := range sm.sessions {
 		s.Workflow.Stop()
 	}
@@ -149,6 +148,8 @@ func (sm *SessionManager) Stop() {
 	if sm.cancel != nil {
 		sm.cancel()
 	}
+	sm.mu.Unlock()
+	engineSessionMetrics.addActive(-int64(count))
 }
 
 // CreateSession instantiates a new workflow session based on a template and optional property overrides.
@@ -203,7 +204,7 @@ func (sm *SessionManager) CreateSession(
 		}
 	}
 	sm.mu.Unlock()
-
+	engineSessionMetrics.addActive(1)
 	for _, fn := range observers {
 		fn(session)
 	}
@@ -240,7 +241,7 @@ func (sm *SessionManager) RemoveSession(key protocol.SessionKey) {
 		}
 	}
 	sm.mu.Unlock()
-
+	engineSessionMetrics.addActive(-1)
 	for _, fn := range observers {
 		fn(s)
 	}
@@ -274,6 +275,7 @@ func (sm *SessionManager) Cleanup() {
 		}
 	}
 	sm.mu.Unlock()
+	engineSessionMetrics.addActive(-int64(len(toBeStopped)))
 
 	for _, s := range toBeStopped {
 		for _, fn := range observers {

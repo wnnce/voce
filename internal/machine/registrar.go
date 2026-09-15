@@ -63,9 +63,12 @@ func (r *Registrar) reconnectLoop() {
 
 func (r *Registrar) register() error {
 	u := r.registrationURL()
-	socket, _, err := gws.NewClient(r, &gws.ClientOption{
+	socket, response, err := gws.NewClient(r, &gws.ClientOption{
 		Addr: u.String(),
 	})
+	if response != nil && response.Body != nil {
+		_ = response.Body.Close()
+	}
 	if err != nil {
 		return err
 	}

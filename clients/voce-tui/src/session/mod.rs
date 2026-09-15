@@ -186,8 +186,8 @@ impl SessionManager {
         playback_in_tx: &mpsc::Sender<Vec<f32>>
     ) -> Result<()> {
         if payload.is_empty() { return Ok(()); }
-        let samples: Vec<f32> = payload.chunks_exact(2)
-            .map(|c| (i16::from_le_bytes([c[0], c[1]]) as f32) / 32768.1)
+        let samples: Vec<f32> = payload.as_chunks::<2>().0.iter()
+            .map(|sample| (i16::from_le_bytes(*sample) as f32) / 32768.1)
             .collect();
         let resampled = crate::audio::resample_linear(&samples, 16000, handle.sample_rate);
         let _ = playback_in_tx.send(resampled).await;

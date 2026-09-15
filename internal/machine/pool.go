@@ -74,6 +74,7 @@ func (m *ConnectionManager) Store(conn *Connection) {
 	}
 	m.connections[conn] = item
 	heap.Push(&m.active, item)
+	machinePoolMetrics.connectionsActive.Add(machinePoolMetricContext, 1)
 }
 
 // Select returns the existing route for key. A previously unseen key is
@@ -99,6 +100,7 @@ func (m *ConnectionManager) Select(key protocol.SessionKey) *Connection {
 		m.routes[key] = item
 		item.sessions[key] = struct{}{}
 		item.load++
+		machinePoolMetrics.sessionsRouted.Add(machinePoolMetricContext, 1)
 		heap.Fix(&m.active, item.index)
 		return item.conn
 	}
@@ -158,6 +160,7 @@ func (m *ConnectionManager) releaseLocked(key protocol.SessionKey, item *heapCon
 	delete(item.sessions, key)
 	if item.load > 0 {
 		item.load--
+		machinePoolMetrics.sessionsRouted.Add(machinePoolMetricContext, -1)
 		heap.Fix(&m.active, item.index)
 	}
 }
@@ -168,12 +171,14 @@ func (m *ConnectionManager) removeConnectionLocked(item *heapConnection) {
 	}
 
 	delete(m.connections, item.conn)
+	machinePoolMetrics.connectionsActive.Add(machinePoolMetricContext, -1)
 	if item.index >= 0 {
 		heap.Remove(&m.active, item.index)
 	}
 	for key := range item.sessions {
 		if m.routes[key] == item {
 			delete(m.routes, key)
+			machinePoolMetrics.sessionsRouted.Add(machinePoolMetricContext, -1)
 		}
 	}
 	clear(item.sessions)

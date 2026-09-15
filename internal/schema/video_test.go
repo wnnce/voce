@@ -10,62 +10,31 @@ import (
 )
 
 func TestVideo_Lifecycle(t *testing.T) {
-	initialSD := LoadActiveSDVideoCount()
-	initialHD := LoadActiveHDVideoCount()
-	initialFHD := LoadActiveFHDVideoCount()
-
-	t.Run("Acquire and Release SD", func(t *testing.T) {
-		v := NewVideo("sd", 480, 640, 33*time.Millisecond)
-		assert.Equal(t, initialSD+1, LoadActiveSDVideoCount())
-		v.Release()
-		assert.Equal(t, initialSD, LoadActiveSDVideoCount())
-	})
-
-	t.Run("Acquire and Release HD", func(t *testing.T) {
-		v := NewVideo("hd", 720, 1280, 33*time.Millisecond)
-		assert.Equal(t, initialHD+1, LoadActiveHDVideoCount())
-		v.Release()
-		assert.Equal(t, initialHD, LoadActiveHDVideoCount())
-	})
-
-	t.Run("Acquire and Release FHD", func(t *testing.T) {
-		v := NewVideo("fhd", 1080, 1920, 33*time.Millisecond)
-		assert.Equal(t, initialFHD+1, LoadActiveFHDVideoCount())
-		v.Release()
-		assert.Equal(t, initialFHD, LoadActiveFHDVideoCount())
-	})
-
 	t.Run("Reference Counting", func(t *testing.T) {
-		v := NewVideo("ref", 480, 640, 33*time.Millisecond)
+		v := NewVideo("ref", 480, 640, 33*time.Millisecond).(*builtinVideo)
 		v.Retain()
-		assert.Equal(t, initialSD+1, LoadActiveSDVideoCount())
 		v.Release()
-		assert.Equal(t, initialSD+1, LoadActiveSDVideoCount())
+		assert.Equal(t, "ref", v.Name())
 		v.Release()
-		assert.Equal(t, initialSD, LoadActiveSDVideoCount())
+		assert.Empty(t, v.Name())
 	})
 
-	t.Run("Precise Count Cross-Resolution", func(t *testing.T) {
-		initialSD = LoadActiveSDVideoCount()
-		initialHD = LoadActiveHDVideoCount()
-
+	t.Run("Copy-on-write Across Resolutions", func(t *testing.T) {
 		v1 := NewVideo("sd", 480, 640, 0)
 		v2 := NewVideo("hd", 720, 1280, 0)
 
-		assert.Equal(t, initialSD+1, LoadActiveSDVideoCount())
-		assert.Equal(t, initialHD+1, LoadActiveHDVideoCount())
-
 		v1.Release()
-		assert.Equal(t, initialSD, LoadActiveSDVideoCount())
 
 		// Test Mutable clone across resolution
 		ro := v2.ReadOnly()
 		mutable := ro.Mutable()
-		assert.Equal(t, initialHD+2, LoadActiveHDVideoCount(), "HD count should reflect clone")
+		assert.NotSame(t, ro, mutable)
+		assert.Equal(t, v2.Name(), mutable.Name())
+		assert.Equal(t, v2.Width(), mutable.Width())
+		assert.Equal(t, v2.Height(), mutable.Height())
 
 		mutable.Release()
 		ro.Release()
-		assert.Equal(t, initialHD, LoadActiveHDVideoCount())
 	})
 }
 

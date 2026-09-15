@@ -9,14 +9,15 @@ import (
 )
 
 // RegisterGatewayRouter initializes and returns the primary gateway router.
-func RegisterGatewayRouter(h *gateway.Handler) http.Handler {
+func RegisterGatewayRouter(h *gateway.Handler, metrics http.Handler) http.Handler {
 	r := chi.NewRouter()
 
 	r.Get("/health", httpx.Wrap(h.HandleHealth))
 	r.Get("/state", httpx.Wrap(h.HandleState))
 	r.Get("/plugins", httpx.Wrap(h.ProxyToAny))
-	r.Get("/monitor", httpx.Wrap(h.HandleMonitorAggregate))
-	r.Get("/gateway/monitor", httpx.Wrap(h.HandleMonitor))
+	if metrics != nil {
+		r.Handle("/metrics", metrics)
+	}
 
 	r.Route("/workflows", func(r chi.Router) {
 		r.Get("/", httpx.Wrap(h.ProxyToAny))

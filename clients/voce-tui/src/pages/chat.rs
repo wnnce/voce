@@ -381,22 +381,22 @@ impl Page for Chat {
         let mut stats_text = vec![Line::from(vec![Span::styled(" LOADING MONITOR...", Style::default().fg(Color::DarkGray))])];
 
         if let Ok(data) = MONITOR_DATA.try_read() {
-            if let Some(last) = &data.last_raw {
+            if let Some(last) = &data.last_snapshot {
                 stats_text = vec![
                     Line::from(vec![Span::styled(" ● ", Style::default().fg(Color::Green)), Span::styled("Active Sessions", Style::default().fg(Color::Gray))]),
-                    Line::from(vec![Span::raw("   Count: "), Span::styled(last.active_sessions.to_string(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))]),
+                    Line::from(vec![Span::raw("   Count: "), Span::styled((last.sessions.active as i64).to_string(), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))]),
                     
                     Line::from(vec![Span::raw(" ")]), // Spacer
                     
                     Line::from(vec![Span::styled(" ● ", Style::default().fg(Color::Blue)), Span::styled("Connectivity", Style::default().fg(Color::Gray))]),
-                    Line::from(vec![Span::raw("   Socket: "), Span::styled(last.active_connections.to_string(), Style::default().fg(Color::White))]),
-                    Line::from(vec![Span::raw("   Audio: "), Span::styled(last.active_audio_count.to_string(), Style::default().fg(Color::Magenta))]),
+                    Line::from(vec![Span::raw("   Socket: "), Span::styled((last.pool.active as i64).to_string(), Style::default().fg(Color::White))]),
+                    Line::from(vec![Span::raw("   Audio: "), Span::styled((last.pool.active as i64).to_string(), Style::default().fg(Color::Magenta))]),
                     
                     Line::from(vec![Span::raw(" ")]), // Spacer
                     
                     Line::from(vec![Span::styled(" ● ", Style::default().fg(Color::Yellow)), Span::styled("System Health", Style::default().fg(Color::Gray))]),
-                    Line::from(vec![Span::raw("   Memory: "), Span::styled(format!("{}MB", last.heap_inuse / 1024 / 1024), Style::default().fg(Color::White))]),
-                    Line::from(vec![Span::raw("   GC Cnt: "), Span::styled(last.num_gc.to_string(), Style::default().fg(Color::DarkGray))]),
+                    Line::from(vec![Span::raw("   Memory: "), Span::styled(format!("{}MB", last.runtime.heap_inuse_bytes as u64 / 1024 / 1024), Style::default().fg(Color::White))]),
+                    Line::from(vec![Span::raw("   GC Cnt: "), Span::styled((last.runtime.gc_count as i64).to_string(), Style::default().fg(Color::DarkGray))]),
                 ];
             }
         }
