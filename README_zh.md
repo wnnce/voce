@@ -1,278 +1,313 @@
+<div align="center">
+
 # Voce
 
-**支持打断与流式处理的实时语音 AI 流水线引擎（ASR → LLM → TTS）**
+### 面向实时语音 AI 流水线的低延迟 Go 运行时
 
-Voce 是一个基于 Go 开发的**个人探索项目**，用于研究如何构建：
+[![CI](https://github.com/wnnce/voce/actions/workflows/ci.yaml/badge.svg)](https://github.com/wnnce/voce/actions/workflows/ci.yaml)
+![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
+![Status](https://img.shields.io/badge/status-experimental-orange)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/wnnce/voce)
 
-- 低延迟（low-latency）
-- 高并发（high-concurrency）
-- 流式（streaming）
+[快速开始](#快速开始) · [系统架构](#系统架构) · [项目文档](#项目文档) · [English](README.md)
 
-的实时 AI 处理系统。
+</div>
 
-当前主要聚焦于语音对话链路（ASR → LLM → TTS），但整体架构设计目标是逐步扩展为：
+Voce 通过声明式 DAG 处理流式音频和结构化数据，提供控制信令优先级、流式打断、背压感知的数据传递、写时复制 Schema、可插拔 AI 服务和具备 Session 路由能力的 Gateway。
 
-> **一个通用的实时多模态编排引擎（multimodal orchestration runtime）**
+项目当前主要面向由 ASR、LLM 和 TTS 组成的全双工语音应用，同时保持运行时与具体模型供应商解耦。
 
----
+> [!WARNING]
+> Voce 是一个工程探索项目。Gateway 和 Remote Plugin API 目前仍处于实验阶段，后续可能发生不向后兼容的变更。
 
-## ⚡ Highlights
+## 为什么选择 Voce？
 
-- 实时语音 AI 流水线（ASR → LLM → TTS）
-- 跨语言的 Remote Plugin 支持 (Python, Node.js)
-- 可立即打断正在进行的 LLM / TTS 生成（流式打断）
-- 数据在不同的 node 和 track 中独立处理，无阻塞
-- 内置 realtime 系统的 backpressure 与丢包策略
-- 5000 并发会话下，P99 延迟低于 50ms
-- 内置网关接入层，支持多执行节点水平扩展与会话路由粘连
+实时语音系统不同于普通的请求响应服务：下游变慢会让延迟持续累积，用户打断后异步模型仍可能返回过期结果，而媒体流也不能无限缓存。
 
----
+Voce 将这些约束作为运行时的基础能力处理：
 
-## 🤔 Why
+- **声明式 DAG 运行时**：通过经过校验的类型化边连接处理节点，而不是将流水线写死在业务代码中。
+- **高优先级控制路径**：打断和生命周期信令优先于已经排队的媒体数据。
+- **背压感知的流式处理**：控制信令和业务 Payload 保证传递，过期的 Audio 或 Video 帧允许在拥塞时丢弃。
+- **明确的数据所有权**：通过只读 Schema、写时复制、引用计数和对象池降低高频数据处理的分配压力。
+- **可插拔执行层**：支持本地 Go Plugin，也支持独立部署的 Python 和 Node.js Remote Plugin Server。
+- **Session 路由**：通过动态 Gateway-Machine 数据连接池承载长连接 Session。
 
-这个项目最初是为了解决一些实际遇到的问题：
+## 系统架构
 
-- 实时语音对话链路中延迟波动较大
-- 下游节点变慢时系统容易堆积甚至 OOM
-- 打断（interrupt）在流式系统中很难处理干净
-- 异步调用（例如 LLM、TTS）会产生过期结果
+```mermaid
+flowchart LR
+    Client[WebSocket / gRPC 客户端] --> Session[Session 与传输层]
+    Session --> Graph
 
-因此 Voce 更像是一个：
+    subgraph Workflow[Workflow 运行时]
+        Graph[Graph 校验]
+        Scheduler[Node 调度器]
+        Lifecycle[生命周期与取消]
+        Backpressure[背压处理]
+        Graph --> Scheduler
+        Graph --> Lifecycle
+        Scheduler --> Backpressure
+    end
 
-> **系统设计实验（system-level prototype）**
+    Graph --> ASR
+    ASR --> Interrupt[Interrupter]
+    Interrupt --> LLM
+    LLM --> TTS
+    TTS --> Sink
 
-用于探索：
-
-- 实时流系统如何调度
-- Go 中如何降低分配和 GC 抖动
-- DAG 编排是否适合实时 AI pipeline
-
----
-
-## 🧠 Current Capabilities
-
-目前，Voce 主要面向纯语音、基于 Socket 的实时交互场景。
-通过 Plugin + 声明式 DAG 编排，可以实现例如：
-
-- **全双工语音对话**
-
-  ```text
-  Socket -> ASR -> Interrupter -> LLM -> TTS -> Socket
-  ```
-
-- **实时同声传译**
-
-  ```text
-  Socket -> ASR -> Translate -> TTS -> Socket
-  ```
-
-> 当前内置插件与 Socket 主要围绕对话场景设计。
-
----
-
-## 🔮 Future Direction
-
-这个项目未来可能探索的方向（不保证实现）：
-
-- WebRTC transport plugin（基于 RTC 的实时音视频接入）
-- 实时对话中的语音指令识别和情感检测
-- 更通用的实时编排 runtime（不仅限对话场景）
-
-👉 以上方向主要用于探索和实验，不构成正式 **roadmap**。
-
----
-
-## 🧩 Built-in Plugins
-
-Voce 目前支持包括 ASR、LLM、TTS 在内的多种实时处理插件，完整列表及配置说明请参阅：
-
-👉 [内置插件列表](docs/plugins_list.md)
-
----
-
-## 🗺️ Built-in Workflow
-
-- benchmark：用于压测
-- realtime_voice：大模型的全双工实时语音对话
-
-## 📦 Project Structure
-
-```text
-.
-├── biz/                # 会话 / WebSocket / RESTful
-├── internal/
-│   ├── engine/         # DAG 调度与运行时
-│   ├── protocol/       # 自定义通信协议
-│   ├── schema/         # 数据模型（Audio / Video / Payload / Signal）
-│   ├── plugins/        # 插件系统
-│   └── ...
-├── pkg/                # 工具包
-├── cmd/
-│   ├── voce/           # 服务端入口
-│   └── bench/          # 压测工具
-├── clients/
-│   ├── web/            # Web编排界面
-│   └── voce-tui/       # 终端客户端
+    Graph -. gRPC .-> Remote[Remote Plugin Server]
 ```
 
----
+每个 Session 拥有一个相互隔离的 Workflow 实例。Workflow 负责校验图结构、按依赖顺序启动 Plugin Node、路由类型化事件，并统一管理暂停、恢复、取消和停止。
 
-## 🚀 Quick Start
+运行时支持两种调度模式：
 
-### 依赖准备
+- `thread-per-node`：每个 Node 使用独立的事件循环。
+- `worker-pool`：多个 Node 共享有界调度器，同时保持单个 Node 内部串行执行。
 
-Voce 的音频处理部分依赖 **FFmpeg (libswresample 与 libavutil)** 开发库，编译前请确保已安装：
+### Gateway 模式
 
-- **macOS**: `brew install ffmpeg`
-- **Ubuntu/Debian**: `sudo apt-get install libswresample-dev libavutil-dev`
+```text
+客户端
+  │ WebSocket
+  ▼
+Gateway ── 控制连接 ──► Machine 注册表
+  │
+  └──── 动态数据连接池 ────► Voce Machine
+                                  │
+                                  ▼
+                            Workflow 运行时
+```
 
-### 1. 本地编译运行
+Gateway 为新 Session 选择 Machine，并在 Session 生命周期内保持路由稳定。数据连接池根据 Session 负载动态伸缩，同时保证单个 Session 的数据时序。当前 gRPC 实时流直接连接 Voce Machine，不经过 Gateway。
+
+连接生命周期、路由机制和当前限制详见 [Gateway 架构](docs/gateway.md)。
+
+## 可以构建什么？
+
+### 全双工语音助手
+
+```text
+Audio → ASR → Interrupter → LLM → Markdown Filter → TTS → Audio
+```
+
+### 实时多模态模型
+
+```text
+Audio → VAD → Realtime MLLM → Audio / Transcript
+```
+
+### 实时同声传译
+
+```text
+Audio → ASR → Translation LLM → TTS → Audio
+```
+
+仓库内置两个示例 Workflow：
+
+- `realtime_voice`：完整的流式语音对话流程。
+- `benchmark`：用于运行时和传输层压测的轻量流水线。
+
+## 快速开始
+
+### 环境要求
+
+- Go 1.27+
+- Git
+- FFmpeg 开发库（`libswresample` 和 `libavutil`）
+- Node.js 和 pnpm，用于构建内嵌的 Workflow 编辑器
+
+安装音频处理依赖：
 
 ```bash
-git clone https://github.com/wnnce/voce.git && cd voce
+# Ubuntu / Debian
+sudo apt-get install libswresample-dev libavutil-dev
 
-make build-all
+# macOS
+brew install ffmpeg
+```
 
-mkdir -p configs && cp config.yaml.example configs/config.yaml
+### 构建并启动
 
+```bash
+git clone https://github.com/wnnce/voce.git
+cd voce
+
+mkdir -p configs
+cp examples/voce-standalone.yaml.example configs/config.yaml
+
+make build
 ./bin/voce -c configs/config.yaml
 ```
 
-### 2. Docker 部署
+示例配置将启动：
+
+- HTTP 和 WebSocket：`http://127.0.0.1:7001`
+- gRPC：`127.0.0.1:7002`
+- 内嵌 Workflow 编辑器：`http://127.0.0.1:7001`
+
+检查服务状态：
 
 ```bash
-git clone https://github.com/wnnce/voce.git && cd voce
-
-mkdir -p configs && cp config.yaml.example configs/config.yaml
-
-docker-compose up -d
-
-make build-tui
+curl http://127.0.0.1:7001/health
 ```
 
-更多详细信息请参阅 **[快速开始指南](docs/quick_start.md)**。
-
----
-
-### Web 编排界面
-
-浏览器访问 [localhost:7001](http://localhost:7001)，编排或者修改节点配置。
-
-![](images/2.png)
-
-### TUI 客户端
-
-运行终端 tui 体验全双工对话
+使用内置 `benchmark` Workflow 创建 Session：
 
 ```bash
+curl -X POST http://127.0.0.1:7001/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"benchmark"}'
+```
+
+响应中包含 `session_id`。WebSocket 客户端通过 `/realtime/{session_id}` 建立实时连接，二进制报文格式详见 [接入协议](docs/protocol.md)。
+
+使用真实模型服务的 Workflow 前，需要先在 Workflow 配置中填写相应的 API Key。
+
+## 界面预览
+
+### Workflow 编辑器
+
+内嵌编辑器会读取 Plugin JSON Schema，并渲染 Workflow Node 和配置表单。
+
+![Voce Workflow 编辑器](images/2.png)
+
+### 终端客户端
+
+构建可选的 Rust TUI，并连接本地服务：
+
+```bash
+make build-tui
 ./bin/voce-tui
 ```
 
-![img.png](images/3.png)
+![Voce 终端客户端](images/3.png)
 
----
+## 核心概念
 
-## 🧱 Core Design
+| 概念 | 职责 |
+| --- | --- |
+| **Session** | 管理一次客户端交互及其 Workflow 生命周期。 |
+| **Workflow** | 运行经过校验的图，协调 Node、调度、取消和输出。 |
+| **Node** | 封装一个 Plugin 实例，并将类型化事件路由到下游 Node。 |
+| **Plugin** | 实现 ASR、LLM、TTS、VAD、过滤等本地或远程处理逻辑。 |
+| **Schema** | 以明确的所有权语义承载 Audio、Video、Payload 和 Signal。 |
+| **Scheduler** | 使用独立事件循环或共享 Worker Pool 调度 Node 事件。 |
+| **Gateway** | 维护 Machine 健康状态、Session 路由和动态数据连接池。 |
 
-### 1. ReadOnly / Mutable 模型
+Workflow 使用 JSON 描述。执行前，Voce 会校验 Node 标识、图拓扑以及输入输出契约。完整格式见 [Workflow 与 DAG](docs/workflow.md)。
 
-默认只读，修改时 Copy-on-Write：
+## 内置 Plugin
 
-```go
-mutable := payload.Mutable()
-mutable.Set("processed", true)
-flow.SendPayload(mutable.ReadOnly())
+| 分类 | Plugin |
+| --- | --- |
+| ASR | Qwen ASR、Deepgram、Google Cloud Speech-to-Text |
+| LLM | OpenAI-compatible Chat Completion Provider |
+| 实时 MLLM | Qwen Omni Realtime |
+| TTS | MiniMax、ElevenLabs、OpenAI TTS |
+| 控制与辅助 | Interrupter、TEN VAD、Caption、Markdown Filter、Sink |
+
+开发本地 Go Plugin 请参考 [Plugin 开发指南](docs/plugin.md)。Python 和 Node.js Plugin 可以通过实验性的 [Remote Plugin](docs/remote_plugin.md) 运行时作为独立 gRPC 服务部署。
+
+## API 与传输协议
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /health` | 进程健康检查。 |
+| `GET /plugins` | 获取已注册 Plugin 及其 Schema。 |
+| `GET /workflows` | 获取 Workflow 定义。 |
+| `POST /sessions` | 创建 Workflow Session。 |
+| `GET /sessions/health/{id}` | 获取 Session 活跃时间与 Workflow 状态。 |
+| `POST /sessions/renew/{id}` | 为闲置 Session 续期。 |
+| `DELETE /sessions/{id}` | 停止并删除 Session。 |
+| `GET /realtime/{id}` | 升级为实时 WebSocket 连接。 |
+| `GET /metrics` | 以 Prometheus 格式导出 OpenTelemetry 指标。 |
+
+Voce 同时提供定义在 `api/voce/v1/voce.proto` 中的双向 gRPC 实时流。
+
+## 可观测性
+
+Voce 使用 OpenTelemetry Metrics，并暴露进程级 Prometheus endpoint。Runtime、Session、Schema 对象、实时传输、Gateway 和 Machine 连接池指标均由所属模块自行采集。
+
+```bash
+curl http://127.0.0.1:7001/metrics
 ```
 
----
+Gateway 和每个 Machine 分别暴露自己的 `/metrics`，Gateway 不聚合 Machine 指标。Gateway 继续提供 `GET /state`，用于查看当前 Machine 和连接池状态快照。
 
-### 2. Low-Allocation 思想
+指标清单与 PromQL 示例见 [监控与指标](docs/monitor.md)。
 
-- 对象池
-- 引用计数
-- 内存复用
+## 性能测试
 
-👉 目标：减少 GC 抖动
+仓库内置 `cmd/bench`，它会创建 Session、建立实时连接、发送带时间戳的音频包，并统计端到端 RTT 与丢包情况。
 
----
+```bash
+go run ./cmd/bench \
+  -u 1000 \
+  -d 1m \
+  -i 50ms \
+  -b 5 \
+  -t http://127.0.0.1:7001
+```
 
-### 3. Signal 优先级调度
+`benchmark` Workflow 使用轻量转发和模拟 I/O Node。测试结果反映运行时、协议和 Gateway 的系统开销，不代表外部 ASR、LLM 或 TTS 服务的容量和延迟。
 
-系统控制信号（如暂停）和信令信号优先于媒体数据。
+测试方法、参数和历史结果见 [压测说明](docs/benchmark.md)。
 
----
+## 开发
 
-### 4. Backpressure
+```bash
+make build          # 构建 Web 编辑器与 Voce 服务
+make build-gateway  # 构建实验性 Gateway
+make build-tui      # 构建终端客户端
+make test-backend   # 运行全部 Go 测试
+make test-tui       # 运行全部 Rust 测试
+make lint           # 运行后端、Web 和 TUI Lint
+```
 
-慢节点会触发丢包或者 Canceled。
+项目目录：
 
----
+```text
+cmd/
+  voce/             Standalone 和 Machine 进程
+  gateway/          Gateway 进程
+  bench/            压测工具
+internal/
+  engine/           Workflow Graph、Node、Scheduler 和生命周期
+  schema/           使用引用计数的流式数据类型
+  remote/           Remote Plugin 客户端运行时
+  gateway/          Gateway 控制面与数据面
+  machine/          Machine 侧数据连接处理
+  telemetry/        OpenTelemetry 与 Prometheus 初始化
+  plugins/          内置模型与辅助 Plugin
+clients/
+  web/              Workflow 编辑器
+  voce-tui/         实时终端客户端与监控面板
+sdks/remote_plugin/ Python 和 Node.js Remote Plugin SDK
+```
 
-### 5. 灵活的调度策略 (Flexible Scheduling)
+## 项目文档
 
-支持单节点独占协程（Thread-per-node）与会话级共享协程池（Worker-pool）两种调度模式，可根据工作流负载特征灵活配置并发 Worker 数量。
+| 文档 | 内容 |
+| --- | --- |
+| [快速开始](docs/quick_start.md) | 本地模式与 Gateway 模式启动说明。 |
+| [核心特性](docs/key_features.md) | 运行时能力与设计概览。 |
+| [Workflow 与 DAG](docs/workflow.md) | Workflow Schema、图校验和调度机制。 |
+| [Plugin 开发指南](docs/plugin.md) | Plugin 接口、属性、生命周期和测试。 |
+| [内置 Plugin](docs/plugins_list.md) | 已支持的模型服务和辅助 Plugin。 |
+| [接入协议](docs/protocol.md) | Session API、WebSocket 报文和 gRPC 传输。 |
+| [Gateway 架构](docs/gateway.md) | Machine 注册、Session 路由与连接池。 |
+| [Remote Plugin](docs/remote_plugin.md) | 跨语言 Plugin 运行时和 SDK。 |
+| [监控与指标](docs/monitor.md) | OpenTelemetry 指标和 Prometheus 查询。 |
+| [压测说明](docs/benchmark.md) | 压测工具与测试方法。 |
 
----
+## 项目状态
 
-### 6. 跨语言支持 (Experimental)
+Workflow Engine、Schema、Scheduler、协议和 Plugin 生命周期已经可以用于实验和扩展。Gateway 集群与 Remote Plugin 仍处于实验阶段，项目目前不承诺生产环境支持或稳定的公开 API。
 
-通过引入 **Remote Plugin** 机制，支持使用 Python 或 Node.js 编写远端插件，允许将部分业务逻辑或模型接入托管在独立的非 Go 进程中。
+在开发环境以外使用 Voce 前，请先阅读 Gateway 的已知限制，为管理接口增加认证，并使用自己的模型服务和流量模型完成验证。
 
----
+## 灵感来源
 
-## 📊 Benchmark
-
-环境：MacBook Pro M5 / 24GB RAM
-
-| Users    | Duration | Packets   | Avg  | P95   | P99   | MIN/MAX   |
-| :------- | :------- | :-------- | :--- | :---- | :---- | :-------- |
-| **10**   | 30s      | 5,990     | 1 ms | 2 ms  | 2 ms  | 0 / 6 ms  |
-| **500**  | 30s      | 296,200   | 2 ms | 3 ms  | 4 ms  | 0 / 12 ms |
-| **1000** | 1m       | 1,185,200 | 2 ms | 5 ms  | 7 ms  | 0 / 30 ms |
-| **2000** | 1m       | 2,342,000 | 4 ms | 7 ms  | 17 ms | 0 / 45 ms |
-| **5000** | 1m       | 5,637,000 | 4 ms | 11 ms | 32 ms | 0 / 61 ms |
-
-👉 内存约 300MB，GC pause 稳定
-
-![tui](images/1.png)
-
----
-
-## ⚠️ Project Status
-
-> 本项目是面向实时 AI 系统的个人工程探索项目。
-
-- 核心设计与架构相对稳定
-- 当前不以生产环境可用为目标
-- 不承诺明确的 roadmap 或持续维护
-
----
-
-## 📚 Lessons Learned
-
-- Copy-on-write 配合引用计数在 DAG 调度的场景下效果很好
-- 控制信号（如 interruption）优先于媒体数据，对实时交互非常重要
-- Backpressure 是长连接流式系统的基础能力，而不是可选优化
-- 在 Go 中减少 allocation 对尾延迟（tail latency）提示非常明显
-
----
-
-## 🔗 Links
-
-- [核心特性](docs/key_features.md)
-- [插件开发指南](docs/plugin.md)
-- [Workflow 与 DAG 编排](docs/workflow.md)
-- [快速开始](docs/quick_start.md)
-- [网关架构设计](docs/gateway.md)
-- [接入协议](docs/protocol.md)
-- [内置插件列表](docs/plugins_list.md)
-- [远程插件开发指南](docs/remote_plugin.md)
-- [压测说明](docs/benchmark.md)
-
-## 💡 灵感来源（Inspiration）
-
-Voce 的部分设计灵感来源于 TEN Framework。
-
-尤其是在将实时处理流程抽象为图结构（graph-based orchestration），以及通过结构化数据流解耦组件这两点上，对早期设计产生了影响。
-
-当前这个仓库更接近一次基于这些经验的重新设计与实现。
+Voce 的部分设计受到 [TEN Framework](https://github.com/TEN-framework/ten-framework) 启发，尤其是通过图结构组合实时处理组件的方式。本仓库是基于这些经验完成的独立设计与实现。
