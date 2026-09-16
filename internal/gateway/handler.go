@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -78,18 +79,49 @@ func (h *Handler) HandleSessionCreate(w http.ResponseWriter, r *http.Request) er
 		return errcode.New(http.StatusServiceUnavailable, http.StatusServiceUnavailable, "no active machines")
 	}
 
-	return h.proxySessionLogic(w, r, machine, func(body []byte) {
-		var res result.Result[map[string]string]
-		_ = sonic.Unmarshal(body, &res)
+	reservation, err := machine.Pool.TryReserve()
+	if err != nil {
+		return errcode.New(http.StatusServiceUnavailable, http.StatusServiceUnavailable, "machine capacity exhausted")
+	}
 
-		sid := res.Data["session_id"]
-		key, _ := parseSessionKey(sid)
-		binding := machine.Pool.Bind(key)
-		session := NewSession(key, binding, machine)
-		h.sm.Store(session)
-		machine.AddSession(key)
-		slog.Info("session registered on gateway", "id", sid, "machine", machine.ID, "addr", machine.Address())
-	})
+	resp, body, err := h.doMachineRequest(r, machine)
+	if err != nil {
+		machine.Pool.Cancel(reservation)
+		return errcode.NewInternal(err.Error())
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		machine.Pool.Cancel(reservation)
+		writeProxyResponse(w, resp, body)
+		return nil
+	}
+
+	var res result.Result[map[string]string]
+	if err = sonic.Unmarshal(body, &res); err != nil {
+		machine.Pool.Cancel(reservation)
+		return errcode.NewInternal(err.Error())
+	}
+	sid := res.Data["session_id"]
+	key, err := parseSessionKey(sid)
+	if err != nil {
+		machine.Pool.Cancel(reservation)
+		return err
+	}
+
+	binding, err := machine.Pool.Commit(reservation, key)
+	if err != nil {
+		machine.Pool.Cancel(reservation)
+		h.deleteMachineSession(machine, key)
+		return errcode.New(http.StatusServiceUnavailable, http.StatusServiceUnavailable, "machine data link unavailable")
+	}
+
+	session := NewSession(key, binding, machine)
+	h.sm.Store(session)
+	machine.AddSession(key)
+	slog.Info("session registered on gateway", "id", sid, "machine", machine.ID, "addr", machine.Address())
+	writeProxyResponse(w, resp, body)
+	return nil
 }
 
 func (h *Handler) HandleSessionHealth(w http.ResponseWriter, r *http.Request) error {
@@ -207,7 +239,7 @@ func (h *Handler) proxyRequest(w http.ResponseWriter, r *http.Request, machine *
 	proxy.ServeHTTP(w, r)
 }
 
-func (h *Handler) proxySessionLogic(w http.ResponseWriter, r *http.Request, machine *Machine, onSuccess func(body []byte)) error {
+func (h *Handler) doMachineRequest(r *http.Request, machine *Machine) (*http.Response, []byte, error) {
 	targetURL := "http://" + machine.Address() + r.URL.Path
 	if r.URL.RawQuery != "" {
 		targetURL += "?" + r.URL.RawQuery
@@ -215,28 +247,55 @@ func (h *Handler) proxySessionLogic(w http.ResponseWriter, r *http.Request, mach
 
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
 	if err != nil {
-		return errcode.NewInternal(err.Error())
+		return nil, nil, err
 	}
 	copyHeader(r.Header, req.Header)
-
 	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		_ = resp.Body.Close()
+		return nil, nil, err
+	}
+	return resp, body, nil
+}
+
+func (h *Handler) deleteMachineSession(machine *Machine, key protocol.SessionKey) {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(cleanupCtx, http.MethodDelete,
+		"http://"+machine.Address()+"/sessions/"+key.String(), nil)
+	if err != nil {
+		slog.Error("failed to create machine session cleanup request", "session", key, "error", err)
+		return
+	}
+	resp, err := http.DefaultClient.Do(request)
+	if err != nil {
+		slog.Error("failed to clean up machine session", "session", key, "error", err)
+		return
+	}
+	_ = resp.Body.Close()
+}
+
+func writeProxyResponse(w http.ResponseWriter, resp *http.Response, body []byte) {
+	copyHeader(resp.Header, w.Header())
+	w.WriteHeader(resp.StatusCode)
+	_, _ = w.Write(body)
+}
+
+func (h *Handler) proxySessionLogic(w http.ResponseWriter, r *http.Request, machine *Machine, onSuccess func(body []byte)) error {
+	resp, body, err := h.doMachineRequest(r, machine)
 	if err != nil {
 		return errcode.NewInternal(err.Error())
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return errcode.NewInternal(err.Error())
-	}
-
 	if resp.StatusCode == http.StatusOK {
 		onSuccess(body)
 	}
-
-	copyHeader(resp.Header, w.Header())
-	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(body)
+	writeProxyResponse(w, resp, body)
 	return nil
 }
 

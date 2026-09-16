@@ -3,12 +3,18 @@ package gateway
 import (
 	"container/heap"
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/lesismal/nbio/nbhttp"
 	"github.com/wnnce/voce/internal/protocol"
+)
+
+var (
+	ErrPoolCapacity       = errors.New("connection pool capacity exhausted")
+	ErrInvalidReservation = errors.New("invalid connection reservation")
 )
 
 const (
@@ -56,6 +62,20 @@ func defaultConnectionPoolConfig(cfg ConnectionPoolConfig) ConnectionPoolConfig 
 type SessionBinding struct {
 	conn atomic.Pointer[Connection]
 }
+
+// ConnectionReservation holds one capacity slot until a session key is known.
+// It is intentionally opaque so callers cannot mutate pool accounting directly.
+type ConnectionReservation struct {
+	pool  *ConnectionPool
+	item  *pooledConnection
+	state atomic.Uint32
+}
+
+const (
+	reservationOpen uint32 = iota
+	reservationCommitted
+	reservationCanceled
+)
 
 func newSessionBinding(conn *Connection) *SessionBinding {
 	binding := &SessionBinding{}
@@ -127,10 +147,66 @@ type pooledConnection struct {
 	conn      *Connection
 	state     protocol.ConnectionState
 	load      int
+	reserved  int
 	priority  connectionPriority
 	index     int
 	idleSince time.Time
 	sessions  map[protocol.SessionKey]struct{}
+}
+
+// TryReserve reserves capacity on an active connection for a session that has
+// not received its server-assigned key yet.
+func (p *ConnectionPool) TryReserve() (*ConnectionReservation, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	item := p.selectActiveLocked()
+	if item == nil {
+		return nil, ErrPoolCapacity
+	}
+	item.reserved++
+	p.refreshLocked(item)
+	return &ConnectionReservation{pool: p, item: item}, nil
+}
+
+// Commit turns a reservation into a routed session binding.
+func (p *ConnectionPool) Commit(reservation *ConnectionReservation, key protocol.SessionKey) (*SessionBinding, error) {
+	if reservation == nil || reservation.pool != p {
+		return nil, ErrInvalidReservation
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	item := reservation.item
+	if p.connections[item.conn] != item || item.conn.State() != protocol.ConnectionActive || item.reserved <= 0 {
+		return nil, ErrPoolCapacity
+	}
+	if !reservation.state.CompareAndSwap(reservationOpen, reservationCommitted) {
+		return nil, ErrInvalidReservation
+	}
+	item.reserved--
+	binding := newSessionBinding(item.conn)
+	p.attachLocked(key, binding, item)
+	return binding, nil
+}
+
+// Cancel releases a reservation that was not committed.
+func (p *ConnectionPool) Cancel(reservation *ConnectionReservation) {
+	if reservation == nil || reservation.pool != p {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !reservation.state.CompareAndSwap(reservationOpen, reservationCanceled) {
+		return
+	}
+	item := reservation.item
+	if p.connections[item.conn] != item || item.reserved <= 0 {
+		return
+	}
+	item.reserved--
+	p.refreshLocked(item)
 }
 
 type connectionPriority uint8
@@ -360,8 +436,16 @@ func (p *ConnectionPool) selectLocked() *pooledConnection {
 	return p.queue[0]
 }
 
+func (p *ConnectionPool) selectActiveLocked() *pooledConnection {
+	item := p.selectLocked()
+	if item == nil || item.conn.State() != protocol.ConnectionActive || item.load+item.reserved >= p.maxSessions {
+		return nil
+	}
+	return item
+}
+
 func (p *ConnectionPool) priorityLocked(item *pooledConnection) connectionPriority {
-	if item.load >= p.maxSessions {
+	if item.load+item.reserved >= p.maxSessions {
 		return connectionPriorityUnavailable
 	}
 	switch item.conn.State() {
@@ -515,8 +599,8 @@ func (h connectionMinHeap) Less(i, j int) bool {
 	if h[i].priority != h[j].priority {
 		return h[i].priority < h[j].priority
 	}
-	if h[i].load != h[j].load {
-		return h[i].load < h[j].load
+	if h[i].load+h[i].reserved != h[j].load+h[j].reserved {
+		return h[i].load+h[i].reserved < h[j].load+h[j].reserved
 	}
 	return h[i].id < h[j].id
 }

@@ -60,6 +60,59 @@ func TestDynamicConnectionPoolBind(t *testing.T) {
 	})
 }
 
+func TestDynamicConnectionPoolReservation(t *testing.T) {
+	t.Run("commits reserved capacity", func(t *testing.T) {
+		p := newTestConnectionPool(1, 1)
+		defer p.Shutdown()
+
+		reservation, err := p.TryReserve()
+		require.NoError(t, err)
+		assert.Equal(t, 1, reservation.item.reserved)
+
+		binding, err := p.Commit(reservation, testSessionKey(1))
+		require.NoError(t, err)
+		require.NotNil(t, binding)
+		assert.Equal(t, protocol.ConnectionActive, binding.Connection().State())
+		assert.Equal(t, 1, p.connections[binding.Connection()].load)
+		assert.Equal(t, 0, p.connections[binding.Connection()].reserved)
+
+		_, err = p.TryReserve()
+		assert.ErrorIs(t, err, ErrPoolCapacity)
+	})
+
+	t.Run("cancels reserved capacity", func(t *testing.T) {
+		p := newTestConnectionPool(1, 1)
+		defer p.Shutdown()
+
+		reservation, err := p.TryReserve()
+		require.NoError(t, err)
+		p.Cancel(reservation)
+		p.Cancel(reservation)
+
+		assert.Equal(t, 0, reservation.item.reserved)
+		_, err = p.TryReserve()
+		assert.NoError(t, err)
+	})
+
+	t.Run("rejects non-active connections", func(t *testing.T) {
+		p := newTestConnectionPool(1, 1)
+		defer p.Shutdown()
+		p.mu.Lock()
+		var conn *Connection
+		for current := range p.connections {
+			conn = current
+			break
+		}
+		p.mu.Unlock()
+		require.NotNil(t, conn)
+		conn.state.Store(int32(protocol.ConnectionConnecting))
+		p.syncConnectionState(conn)
+
+		_, err := p.TryReserve()
+		assert.ErrorIs(t, err, ErrPoolCapacity)
+	})
+}
+
 func TestDynamicConnectionPoolBindSameKeyConcurrently(t *testing.T) {
 	p := newTestConnectionPool(64, 0)
 	defer p.Shutdown()
