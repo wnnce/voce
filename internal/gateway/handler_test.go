@@ -8,12 +8,14 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/wnnce/voce/internal/errcode"
 	"github.com/wnnce/voce/internal/protocol"
 	"github.com/wnnce/voce/pkg/result"
 )
@@ -145,6 +147,43 @@ func TestHandlerSessionLifecycleProxy(t *testing.T) {
 	deleteResponse := httptest.NewRecorder()
 	require.NoError(t, h.HandleSessionDelete(deleteResponse, requestWithSessionID(key.String())))
 	_, exists = sm.Load(key)
+	assert.False(t, exists)
+	assert.Zero(t, machine.Sessions())
+}
+
+func TestHandlerSessionCreateCleansUpWhenPoolIsFull(t *testing.T) {
+	key := testSessionKey(2)
+	var deleted atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/sessions":
+			_, _ = w.Write([]byte(`{"code":200,"message":"ok","data":{"session_id":"` + key.String() + `"}}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/sessions/"+key.String():
+			deleted.Store(true)
+			_, _ = w.Write([]byte(`{"code":200,"message":"ok"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	p := newTestConnectionPool(1, 1)
+	defer p.Shutdown()
+	_, ok := p.TryBind(testSessionKey(1))
+	require.True(t, ok)
+
+	machine := machineForServer(t, server.URL)
+	machine.Pool = p
+	machine.state.Store(int32(MachineStateActive))
+	sm := newTestSessionManager()
+	h := NewHandler(&MachineManager{items: map[string]*Machine{machine.ID: machine}}, sm)
+
+	err := h.HandleSessionCreate(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/sessions", nil))
+	var serverErr *errcode.ServerError
+	require.ErrorAs(t, err, &serverErr)
+	assert.Equal(t, http.StatusServiceUnavailable, serverErr.Status)
+	assert.True(t, deleted.Load())
+	_, exists := sm.Load(key)
 	assert.False(t, exists)
 	assert.Zero(t, machine.Sessions())
 }

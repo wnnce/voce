@@ -79,39 +79,28 @@ func (h *Handler) HandleSessionCreate(w http.ResponseWriter, r *http.Request) er
 		return errcode.New(http.StatusServiceUnavailable, http.StatusServiceUnavailable, "no active machines")
 	}
 
-	reservation, err := machine.Pool.TryReserve()
-	if err != nil {
-		return errcode.New(http.StatusServiceUnavailable, http.StatusServiceUnavailable, "machine capacity exhausted")
-	}
-
 	resp, body, err := h.doMachineRequest(r, machine)
 	if err != nil {
-		machine.Pool.Cancel(reservation)
 		return errcode.NewInternal(err.Error())
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
-		machine.Pool.Cancel(reservation)
 		writeProxyResponse(w, resp, body)
 		return nil
 	}
 
 	var res result.Result[map[string]string]
 	if err = sonic.Unmarshal(body, &res); err != nil {
-		machine.Pool.Cancel(reservation)
-		return errcode.NewInternal(err.Error())
+		return errcode.New(http.StatusBadGateway, http.StatusBadGateway, "invalid machine session response")
 	}
 	sid := res.Data["session_id"]
-	key, err := parseSessionKey(sid)
+	key, err := protocol.ParseSessionKey(sid)
 	if err != nil {
-		machine.Pool.Cancel(reservation)
-		return err
+		return errcode.New(http.StatusBadGateway, http.StatusBadGateway, "invalid machine session id")
 	}
 
-	binding, err := machine.Pool.Commit(reservation, key)
-	if err != nil {
-		machine.Pool.Cancel(reservation)
+	binding, ok := machine.Pool.TryBind(key)
+	if !ok {
 		h.deleteMachineSession(machine, key)
 		return errcode.New(http.StatusServiceUnavailable, http.StatusServiceUnavailable, "machine data link unavailable")
 	}
@@ -263,19 +252,20 @@ func (h *Handler) doMachineRequest(r *http.Request, machine *Machine) (*http.Res
 }
 
 func (h *Handler) deleteMachineSession(machine *Machine, key protocol.SessionKey) {
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	request, err := http.NewRequestWithContext(cleanupCtx, http.MethodDelete,
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete,
 		"http://"+machine.Address()+"/sessions/"+key.String(), nil)
 	if err != nil {
 		slog.Error("failed to create machine session cleanup request", "session", key, "error", err)
 		return
 	}
-	resp, err := http.DefaultClient.Do(request)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		slog.Error("failed to clean up machine session", "session", key, "error", err)
 		return
 	}
+	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 }
 

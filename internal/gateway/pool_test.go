@@ -60,56 +60,63 @@ func TestDynamicConnectionPoolBind(t *testing.T) {
 	})
 }
 
-func TestDynamicConnectionPoolReservation(t *testing.T) {
-	t.Run("commits reserved capacity", func(t *testing.T) {
-		p := newTestConnectionPool(1, 1)
+func TestDynamicConnectionPoolTryBind(t *testing.T) {
+	t.Run("binds to an active connection", func(t *testing.T) {
+		p := newTestConnectionPool(2, 1)
 		defer p.Shutdown()
 
-		reservation, err := p.TryReserve()
-		require.NoError(t, err)
-		assert.Equal(t, 1, reservation.item.reserved)
-
-		binding, err := p.Commit(reservation, testSessionKey(1))
-		require.NoError(t, err)
-		require.NotNil(t, binding)
+		key := testSessionKey(1)
+		binding, ok := p.TryBind(key)
+		require.True(t, ok)
+		require.NotNil(t, binding.Connection())
 		assert.Equal(t, protocol.ConnectionActive, binding.Connection().State())
 		assert.Equal(t, 1, p.connections[binding.Connection()].load)
-		assert.Equal(t, 0, p.connections[binding.Connection()].reserved)
-
-		_, err = p.TryReserve()
-		assert.ErrorIs(t, err, ErrPoolCapacity)
 	})
 
-	t.Run("cancels reserved capacity", func(t *testing.T) {
+	t.Run("rejects when active capacity is exhausted", func(t *testing.T) {
 		p := newTestConnectionPool(1, 1)
 		defer p.Shutdown()
 
-		reservation, err := p.TryReserve()
-		require.NoError(t, err)
-		p.Cancel(reservation)
-		p.Cancel(reservation)
-
-		assert.Equal(t, 0, reservation.item.reserved)
-		_, err = p.TryReserve()
-		assert.NoError(t, err)
+		_, ok := p.TryBind(testSessionKey(1))
+		require.True(t, ok)
+		binding, ok := p.TryBind(testSessionKey(2))
+		assert.False(t, ok)
+		assert.Nil(t, binding)
+		assert.Len(t, p.bindings, 1)
 	})
 
-	t.Run("rejects non-active connections", func(t *testing.T) {
-		p := newTestConnectionPool(1, 1)
+	t.Run("triggers dynamic expansion at target load", func(t *testing.T) {
+		p := newTestConnectionPool(4, 2)
 		defer p.Shutdown()
-		p.mu.Lock()
-		var conn *Connection
-		for current := range p.connections {
-			conn = current
-			break
+		p.targetSessions = 1
+
+		_, ok := p.TryBind(testSessionKey(1))
+		require.True(t, ok)
+		require.Eventually(t, func() bool {
+			return connectionCount(p) == 2
+		}, time.Second, time.Millisecond)
+	})
+
+	t.Run("does not overbook capacity concurrently", func(t *testing.T) {
+		const capacity = 8
+		p := newTestConnectionPool(capacity, 1)
+		defer p.Shutdown()
+
+		var accepted atomic.Int32
+		var wg sync.WaitGroup
+		for value := range 32 {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if _, ok := p.TryBind(testSessionKey(byte(value + 1))); ok {
+					accepted.Add(1)
+				}
+			}()
 		}
-		p.mu.Unlock()
-		require.NotNil(t, conn)
-		conn.state.Store(int32(protocol.ConnectionConnecting))
-		p.syncConnectionState(conn)
+		wg.Wait()
 
-		_, err := p.TryReserve()
-		assert.ErrorIs(t, err, ErrPoolCapacity)
+		assert.Equal(t, int32(capacity), accepted.Load())
+		assert.Len(t, p.bindings, capacity)
 	})
 }
 
