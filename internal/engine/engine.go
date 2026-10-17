@@ -29,6 +29,7 @@ type controlType byte
 const (
 	controlPause controlType = iota + 1
 	controlResume
+	controlStop
 )
 
 func (c controlType) String() string {
@@ -37,6 +38,8 @@ func (c controlType) String() string {
 		return "pause"
 	case controlResume:
 		return "resume"
+	case controlStop:
+		return "stop"
 	default:
 		return "unknown"
 	}

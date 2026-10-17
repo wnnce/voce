@@ -47,7 +47,16 @@ func (n *loopNode) Start() error {
 }
 
 func (n *loopNode) Stop() {
-	n.running.Store(false)
+	if !n.running.Swap(false) {
+		// The loop never started or already exited; its defer owns OnStop.
+		return
+	}
+	select {
+	case n.ctrlChan <- controlStop:
+	default:
+		// The ctrl queue is full, so the loop cannot be blocked in select;
+		// the running check at the top of the loop will make it exit.
+	}
 }
 
 func (n *loopNode) Pause() {
@@ -114,6 +123,9 @@ func (n *loopNode) readLoop() {
 			n.processEvent(event, true)
 			continue
 		case ctrl := <-n.ctrlChan:
+			if ctrl == controlStop {
+				return
+			}
 			n.processControl(ctrl)
 			continue
 		default:
@@ -121,6 +133,9 @@ func (n *loopNode) readLoop() {
 			case <-n.ctx.Done():
 				return
 			case ctrl := <-n.ctrlChan:
+				if ctrl == controlStop {
+					return
+				}
 				n.processControl(ctrl)
 			case event = <-n.signalChan:
 				useDeadline = true

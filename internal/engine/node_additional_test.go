@@ -265,6 +265,36 @@ func TestNode_ContextCancelStopsLoop(t *testing.T) {
 	assert.False(t, n.running.Load())
 }
 
+// TestNode_StopWakesIdleLoop verifies that Stop wakes a readLoop blocked on its
+// channels without relying on context cancellation.
+func TestNode_StopWakesIdleLoop(t *testing.T) {
+	plg := &fullMockPlugin{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	n := newNode(ctx, "stop-wake", plg)
+	require.NoError(t, n.Start())
+
+	n.Stop()
+
+	require.Eventually(t, func() bool { return plg.stopCount.Load() == 1 },
+		500*time.Millisecond, 5*time.Millisecond, "OnStop must be called after Stop wakes an idle loop")
+	assert.False(t, n.running.Load())
+}
+
+// TestNode_StopBeforeStart verifies that stopping a node whose OnStart never
+// succeeded is a no-op and does not call OnStop.
+func TestNode_StopBeforeStart(t *testing.T) {
+	plg := &fullMockPlugin{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	n := newNode(ctx, "never-started", plg)
+	n.Stop()
+
+	assert.Equal(t, int32(0), plg.stopCount.Load(), "OnStop must not run for a node that never started")
+}
+
 // TestNode_StoppedNodeDropsInput verifies that a node with running=false
 // silently drops all input without panicking.
 func TestNode_StoppedNodeDropsInput(t *testing.T) {
