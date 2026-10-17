@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,7 +35,11 @@ func TestWorkflow(t *testing.T) {
 		testWorkflowTopologicalSortAndExecution(t, store)
 	})
 	t.Run("Dispatch", func(t *testing.T) {
-		testWorkflowDispatch(t, store)
+		testWorkflowDispatch(t)
+	})
+	t.Run("StartFailureRollback", func(t *testing.T) {
+		testWorkflowStartFailureRollback(t, SchedulerModeThreadPerNode)
+		testWorkflowStartFailureRollback(t, SchedulerModeWorkerPool)
 	})
 	t.Run("SendToNodeWithName", func(t *testing.T) {
 		testWorkflowSendToNodeWithName(t, store)
@@ -87,23 +93,49 @@ func testWorkflowTopologicalSortAndExecution(t *testing.T, store *PluginStore) {
 	wf.Stop()
 }
 
-func testWorkflowDispatch(t *testing.T, store *PluginStore) {
-	// ignore duplicate registration error; plugin may already be registered from other tests
-	_ = RegisterPlugin[*MockPluginConfig](func(cfg *MockPluginConfig) Plugin {
-		return &BuiltinPlugin{}
-	}, PluginMetadata{
-		Name: "test_node",
-	})
+// payloadProbe records received payload content and forwards it unchanged, so a
+// chain of probes observes both dispatch into the head and edge forwarding.
+type payloadProbe struct {
+	BuiltinPlugin
+	mu       sync.Mutex
+	payloads []string
+}
+
+func (p *payloadProbe) OnPayload(ctx context.Context, flow Flow, payload schema.Payload) {
+	p.mu.Lock()
+	p.payloads = append(p.payloads, schema.GetAs[string](payload, "content", ""))
+	p.mu.Unlock()
+	p.BuiltinPlugin.OnPayload(ctx, flow, payload)
+}
+
+func (p *payloadProbe) received() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.payloads...)
+}
+
+func testWorkflowDispatch(t *testing.T) {
+	head := &payloadProbe{}
+	tail := &payloadProbe{}
+
+	// Builders are supplied directly so the test stays independent of the global registry.
+	builders := map[string]PluginBuilder{
+		"n1": testPluginBuilder{name: "payload_probe", factory: func() Plugin { return head }},
+		"n2": testPluginBuilder{name: "payload_probe", factory: func() Plugin { return tail }},
+	}
 
 	config := &WorkflowConfig{
-		ID:   "wf-3",
+		ID:   "wf-dispatch",
 		Head: "n1",
 		Nodes: []NodeConfig{
-			{ID: "n1", Name: "Node 1", Plugin: "test_node"},
+			{ID: "n1", Name: "Node 1", Plugin: "payload_probe"},
+			{ID: "n2", Name: "Node 2", Plugin: "payload_probe"},
+		},
+		Edges: []EdgeConfig{
+			{Source: "n1", Target: "n2", Type: EventPayload},
 		},
 	}
 
-	builders := localTestPluginBuilders(t, store, config.Nodes)
 	graph, err := BuildGraph(config, builders)
 	require.NoError(t, err)
 
@@ -112,20 +144,125 @@ func testWorkflowDispatch(t *testing.T, store *PluginStore) {
 	require.NoError(t, wf.Start())
 	defer wf.Stop()
 
-	// Intercept output
-	wctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-
 	payload := schema.NewPayload("")
-	// Set data safely via Properties methods
 	require.NoError(t, payload.Set("content", "hello"))
+	require.NoError(t, wf.SendToHead(payload.ReadOnly()))
 
-	// Test SendToHead wrapper function
-	err = wf.SendToHead(payload.ReadOnly())
-	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return len(head.received()) == 1 && len(tail.received()) == 1
+	}, time.Second, 10*time.Millisecond, "payload was not dispatched through the graph")
 
-	// Since we are mocking, just wait a bit to ensure it doesn't crash
-	<-wctx.Done()
+	assert.Equal(t, []string{"hello"}, head.received())
+	assert.Equal(t, []string{"hello"}, tail.received())
+}
+
+// startProbe records lifecycle callbacks into a shared event log.
+type startProbe struct {
+	BuiltinPlugin
+	name      string
+	failStart bool
+	mu        *sync.Mutex
+	events    *[]string
+}
+
+func (p *startProbe) record(event string) {
+	p.mu.Lock()
+	*p.events = append(*p.events, event)
+	p.mu.Unlock()
+}
+
+func (p *startProbe) OnStart(_ context.Context, _ Flow) error {
+	p.record("start:" + p.name)
+	if p.failStart {
+		return fmt.Errorf("start failed: %s", p.name)
+	}
+	return nil
+}
+
+func (p *startProbe) OnReady(_ context.Context, _ Flow) { p.record("ready:" + p.name) }
+
+func (p *startProbe) OnStop() { p.record("stop:" + p.name) }
+
+func snapshotEvents(mu *sync.Mutex, events *[]string) []string {
+	mu.Lock()
+	defer mu.Unlock()
+	return append([]string(nil), *events...)
+}
+
+func countEventPrefix(events []string, prefix string) int {
+	n := 0
+	for _, event := range events {
+		if strings.HasPrefix(event, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+// testWorkflowStartFailureRollback verifies that a node failing OnStart stops
+// every node already started, in reverse start order, and skips OnReady.
+func testWorkflowStartFailureRollback(t *testing.T, mode SchedulerMode) {
+	t.Run(string(mode), func(t *testing.T) {
+		var mu sync.Mutex
+		var events []string
+		newProbe := func(name string, failStart bool) Plugin {
+			return &startProbe{name: name, failStart: failStart, mu: &mu, events: &events}
+		}
+
+		builders := map[string]PluginBuilder{
+			"n1": testPluginBuilder{name: "start_probe", factory: func() Plugin { return newProbe("n1", false) }},
+			"n2": testPluginBuilder{name: "start_probe", factory: func() Plugin { return newProbe("n2", false) }},
+			"n3": testPluginBuilder{name: "start_probe", factory: func() Plugin { return newProbe("n3", true) }},
+		}
+
+		config := &WorkflowConfig{
+			ID:            "wf-start-rollback",
+			Head:          "n1",
+			SchedulerMode: mode,
+			Nodes: []NodeConfig{
+				{ID: "n1", Name: "Node 1", Plugin: "start_probe"},
+				{ID: "n2", Name: "Node 2", Plugin: "start_probe"},
+				{ID: "n3", Name: "Node 3", Plugin: "start_probe"},
+			},
+			Edges: []EdgeConfig{
+				{Source: "n1", Target: "n2", Type: EventPayload},
+				{Source: "n2", Target: "n3", Type: EventPayload},
+			},
+		}
+
+		graph, err := BuildGraph(config, builders)
+		require.NoError(t, err)
+		wf, err := NewWorkflow(context.Background(), graph, builders)
+		require.NoError(t, err)
+		// Start already moved the workflow to Stopped, so Workflow.Stop is a no-op
+		// and never cancels ctx; cancel directly to release scheduler goroutines.
+		t.Cleanup(wf.cancel)
+
+		err = wf.Start()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Node 3")
+		assert.Equal(t, WorkflowStateStopped, wf.State())
+
+		// n3 failed before starting its loop, so only n1 and n2 must be stopped.
+		require.Eventually(t, func() bool {
+			return countEventPrefix(snapshotEvents(&mu, &events), "stop:") == 2
+		}, time.Second, 10*time.Millisecond, "started nodes were not rolled back: %v", snapshotEvents(&mu, &events))
+
+		got := snapshotEvents(&mu, &events)
+		assert.NotContains(t, got, "stop:n3", "the failing node must not be stopped")
+		assert.NotContains(t, got, "ready:n1", "OnReady must not run when startup fails")
+		assert.Equal(t, 1, countEventPrefix(got, "start:n1"))
+		assert.Equal(t, 1, countEventPrefix(got, "start:n2"))
+		assert.Equal(t, 1, countEventPrefix(got, "start:n3"))
+
+		// worker-pool stops nodes synchronously, so the reverse order is observable.
+		if mode == SchedulerModeWorkerPool {
+			assert.Equal(t, []string{
+				"start:n1", "start:n2", "start:n3",
+				"stop:n2", "stop:n1",
+			}, got)
+		}
+	})
 }
 
 func testWorkflowSendToNodeWithName(t *testing.T, store *PluginStore) {

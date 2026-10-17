@@ -9,16 +9,22 @@ import (
 )
 
 type testPluginBuilder struct {
-	name string
+	name    string
+	factory func() Plugin
 }
 
-func (b testPluginBuilder) Name() string                   { return b.name }
-func (b testPluginBuilder) Description() string            { return "" }
-func (b testPluginBuilder) Schema() *jsonschema.Schema     { return nil }
-func (b testPluginBuilder) Inputs() []Property             { return nil }
-func (b testPluginBuilder) Outputs() []Property            { return nil }
-func (b testPluginBuilder) Ports() []PortMetadata          { return nil }
-func (b testPluginBuilder) Build(_ []byte) (Plugin, error) { return &BuiltinPlugin{}, nil }
+func (b testPluginBuilder) Name() string               { return b.name }
+func (b testPluginBuilder) Description() string        { return "" }
+func (b testPluginBuilder) Schema() *jsonschema.Schema { return nil }
+func (b testPluginBuilder) Inputs() []Property         { return nil }
+func (b testPluginBuilder) Outputs() []Property        { return nil }
+func (b testPluginBuilder) Ports() []PortMetadata      { return nil }
+func (b testPluginBuilder) Build(_ []byte) (Plugin, error) {
+	if b.factory != nil {
+		return b.factory(), nil
+	}
+	return &BuiltinPlugin{}, nil
+}
 
 func TestPluginStore_LoadBuilder(t *testing.T) {
 	local := NewPluginResource(LocalNamespace)
