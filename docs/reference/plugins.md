@@ -44,4 +44,4 @@ Voce 采用插件化服务，通过不同的插件组合实现多模态能力的
 
 ### 如何开发插件？
 
-如果需要接入新的 ASR/TTS 服务商，可以参考 [插件开发指南 (Plugin Development)](plugin.md)。
+如果需要接入新的 ASR/TTS 服务商，可以参考 [插件开发指南 (Plugin Development)](../guides/plugin.md)。

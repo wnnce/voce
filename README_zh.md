@@ -82,7 +82,7 @@ Gateway ── 控制连接 ──► Machine 注册表
 
 Gateway 为新 Session 选择 Machine，并在 Session 生命周期内保持路由稳定。数据连接池根据 Session 负载动态伸缩，同时保证单个 Session 的数据时序。当前 gRPC 实时流直接连接 Voce Machine，不经过 Gateway。
 
-连接生命周期、路由机制和当前限制详见 [Gateway 架构](docs/gateway.md)。
+连接生命周期、路由机制和当前限制详见 [Gateway 架构](docs/architecture/gateway.md)。
 
 ## 可以构建什么？
 
@@ -161,7 +161,7 @@ curl -X POST http://127.0.0.1:7001/sessions \
   -d '{"name":"benchmark"}'
 ```
 
-响应中包含 `session_id`。WebSocket 客户端通过 `/realtime/{session_id}` 建立实时连接，二进制报文格式详见 [接入协议](docs/protocol.md)。
+响应中包含 `session_id`。WebSocket 客户端通过 `/realtime/{session_id}` 建立实时连接，二进制报文格式详见 [接入协议](docs/reference/protocol.md)。
 
 使用真实模型服务的 Workflow 前，需要先在 Workflow 配置中填写相应的 API Key。
 
@@ -196,7 +196,7 @@ make build-tui
 | **Scheduler** | 使用独立事件循环或共享 Worker Pool 调度 Node 事件。 |
 | **Gateway** | 维护 Machine 健康状态、Session 路由和动态数据连接池。 |
 
-Workflow 使用 JSON 描述。执行前，Voce 会校验 Node 标识、图拓扑以及输入输出契约。完整格式见 [Workflow 与 DAG](docs/workflow.md)。
+Workflow 使用 JSON 描述。执行前，Voce 会校验 Node 标识、图拓扑以及输入输出契约。完整格式见 [Workflow 与 DAG](docs/guides/workflow.md)。
 
 ## 内置 Plugin
 
@@ -208,7 +208,7 @@ Workflow 使用 JSON 描述。执行前，Voce 会校验 Node 标识、图拓扑
 | TTS | MiniMax、ElevenLabs、OpenAI TTS |
 | 控制与辅助 | Interrupter、TEN VAD、Caption、Markdown Filter、Sink |
 
-开发本地 Go Plugin 请参考 [Plugin 开发指南](docs/plugin.md)。Python 和 Node.js Plugin 可以通过实验性的 [Remote Plugin](docs/remote_plugin.md) 运行时作为独立 gRPC 服务部署。
+开发本地 Go Plugin 请参考 [Plugin 开发指南](docs/guides/plugin.md)。Python 和 Node.js Plugin 可以通过实验性的 [Remote Plugin](docs/guides/remote-plugin.md) 运行时作为独立 gRPC 服务部署。
 
 ## API 与传输协议
 
@@ -236,7 +236,7 @@ curl http://127.0.0.1:7001/metrics
 
 Gateway 和每个 Machine 分别暴露自己的 `/metrics`，Gateway 不聚合 Machine 指标。Gateway 继续提供 `GET /state`，用于查看当前 Machine 和连接池状态快照。
 
-指标清单与 PromQL 示例见 [监控与指标](docs/monitor.md)。
+指标清单与 PromQL 示例见 [监控与指标](docs/guides/observability.md)。
 
 ## 性能测试
 
@@ -253,7 +253,7 @@ go run ./cmd/bench \
 
 `benchmark` Workflow 使用轻量转发和模拟 I/O Node。测试结果反映运行时、协议和 Gateway 的系统开销，不代表外部 ASR、LLM 或 TTS 服务的容量和延迟。
 
-测试方法、参数和历史结果见 [压测说明](docs/benchmark.md)。
+测试方法、参数和历史结果见 [压测说明](docs/guides/benchmark.md)，历史数据归档在 [docs/reports](docs/reports/benchmark-2026-05.md)。
 
 ## 开发
 
@@ -289,18 +289,20 @@ sdks/remote_plugin/ Python 和 Node.js Remote Plugin SDK
 
 ## 项目文档
 
+完整索引见 [docs/README.md](docs/README.md)。
+
 | 文档 | 内容 |
 | --- | --- |
-| [快速开始](docs/quick_start.md) | 本地模式与 Gateway 模式启动说明。 |
-| [核心特性](docs/key_features.md) | 运行时能力与设计概览。 |
-| [Workflow 与 DAG](docs/workflow.md) | Workflow Schema、图校验和调度机制。 |
-| [Plugin 开发指南](docs/plugin.md) | Plugin 接口、属性、生命周期和测试。 |
-| [内置 Plugin](docs/plugins_list.md) | 已支持的模型服务和辅助 Plugin。 |
-| [接入协议](docs/protocol.md) | Session API、WebSocket 报文和 gRPC 传输。 |
-| [Gateway 架构](docs/gateway.md) | Machine 注册、Session 路由与连接池。 |
-| [Remote Plugin](docs/remote_plugin.md) | 跨语言 Plugin 运行时和 SDK。 |
-| [监控与指标](docs/monitor.md) | OpenTelemetry 指标和 Prometheus 查询。 |
-| [压测说明](docs/benchmark.md) | 压测工具与测试方法。 |
+| [核心能力概览](docs/overview.md) | 运行时能力与设计概览。 |
+| [快速开始](docs/guides/quick-start.md) | 本地模式与 Gateway 模式启动说明。 |
+| [Workflow 与 DAG](docs/guides/workflow.md) | Workflow Schema、图校验和调度机制。 |
+| [Plugin 开发指南](docs/guides/plugin.md) | Plugin 接口、属性、生命周期和测试。 |
+| [内置 Plugin](docs/reference/plugins.md) | 已支持的模型服务和辅助 Plugin。 |
+| [接入协议](docs/reference/protocol.md) | Session API、WebSocket 报文和 gRPC 传输。 |
+| [Gateway 架构](docs/architecture/gateway.md) | Machine 注册、Session 路由与连接池。 |
+| [Remote Plugin](docs/guides/remote-plugin.md) | 跨语言 Plugin 运行时和 SDK。 |
+| [监控与指标](docs/guides/observability.md) | OpenTelemetry 指标和 Prometheus 查询。 |
+| [压测说明](docs/guides/benchmark.md) | 压测工具与测试方法。 |
 
 ## 项目状态
 

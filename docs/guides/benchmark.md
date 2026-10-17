@@ -2,7 +2,7 @@
 
 Voce 的 Benchmark 工具旨在模拟高并发下的真实媒体流处理链路，不仅测试单点吞吐量，更专注于在高负载下维持 **极低且稳定的尾延迟 (Tail Latency)**。
 
-[benchmark.go](../cmd/bench/main.go) [benchmark plugin](../internal/plugins/benchmark/plugin.go)
+相关代码：[cmd/bench/main.go](../../cmd/bench/main.go) · [benchmark plugin](../../internal/plugins/benchmark/plugin.go) · [历史基线数据](../reports/benchmark-2026-05.md)
 
 ## 1. 压测设计 (Design Principles)
 
@@ -21,7 +21,7 @@ Voce 的 Benchmark 工具旨在模拟高并发下的真实媒体流处理链路�
 
 Benchmark 默认选用了 `benchmark` 这个特定的 Workflow， 其 DAG 路径如下：
 
-![](../images/4.png)
+![](../../images/4.png)
 
 - **转发节点 (Forwarder)**：纯透传，用于测试内部的节点调度。
 - **记录节点 (Recorder)**：模拟 I/O 操作。它会将音频数据写入 `/dev/null`（模拟文件存储或分流）。
@@ -33,58 +33,9 @@ Benchmark 默认选用了 `benchmark` 这个特定的 Workflow， 其 DAG 路径
 - **时间戳嵌入**：在音频 Payload 的前 8 个字节（BigEndian）嵌入发送时刻的 Unix 毫秒时间戳。
 - **闭环计算**：当数据包经过 5 个 Node 并返回 Client 时，Client 通过解析时间戳计算端到端的 **RTT (Round Trip Time)**。
 
-## 2. 压测数据回顾 (Performance Report)
+## 2. 如何使用 (Usage)
 
-### 压测环境规格 (Environment Specification)
-
-测试使用 3 台**腾讯云计算型 C3** 实例，通过同一 VPC 内部网络互联（延迟 < 1ms）。
-
-- **实例型号**：Tencent Cloud CVM C3.LARGE8 (计算型)
-- **CPU**：Intel(R) Xeon(R) Gold 6146 (4 vCPU) @ 3.19 GHz
-- **内存**：8GB DDR4
-- **操作系统**：Debian GNU/Linux 13 (Trixie) x86_64 / Kernel 6.12
-- **部署结构**：压测机、网关、业务服务器各占一台物理独立实例。
-
-### 单机模式 (Standalone)
-*Worker 直接处理客户端 WebSocket 连入*
-
-| Users | Duration | Packets | Avg RTT | P95 RTT | P99 RTT | Min/Max RTT | 状态结论 |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **100** | 30s | 59,640 | 1ms | 2ms | 2ms | 0/4ms | 极度流畅 |
-| **500** | 30s | 291,700 | 2ms | 3ms | 4ms | 0/8ms | 极度流畅 |
-| **1000** | 1m | 1,168,600 | 3ms | 5ms | 6ms | 0/19ms | 稳定运行 |
-| **2000** | 1m | 2,274,000 | 6ms | 9ms | 11ms | 0/38ms | 稳定运行 |
-| **3000** | 1m | 3,253,200 | 9ms | 16ms | 23ms | 0/88ms | **单机甜点位** |
-| **4000** | 1m | 4,106,801 | 47ms | 65ms | 90ms | 1/436ms | 负载临界 |
-| **5000** | 1m | 4,767,529 | 84ms | 177ms | 669ms | 0/4868ms | 开始卡顿 |
-
-### 网关模式 (Gateway)
-*历史基线：客户端连接网关，网关通过 16 条固定复用连接转发至后端 Worker。当前实现使用动态连接池，新的压测结果需记录连接池参数后再与此数据比较。*
-
-| Users | Duration | Packets | Avg RTT | P95 RTT | P99 RTT | Min/Max RTT | 状态结论 |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **100** | 30s | 59,520 | 1ms | 3ms | 3ms | 1/7ms | 转发流畅 |
-| **500** | 30s | 288,000 | 3ms | 5ms | 6ms | 1/10ms | 损耗极低 |
-| **1000** | 1m | 1,152,357 | 5ms | 7ms | 10ms | 1/234ms | 稳定运行 |
-| **2000** | 1m | 2,226,676 | 13ms | 19ms | 178ms | 1/469ms | **性能均衡点** |
-| **3000** | 1m | 3,228,329 | 56ms | 98ms | 144ms | 3/526ms | 负载较重 |
-| **4000** | 1m | 4,125,786 | 181ms | 368ms | 542ms | 4/1482ms | 转发压力大 |
-| **5000** | 1m | 4,437,125 | 3.2s | 6.8s | 10.4s | 3/23404ms | 系统饱和 |
-
-### 数据说明
-
-1. **网关开销**：
-   在 2000 并发下，网关模式相比单机模式仅增加了约 **7ms** 的平均延迟，转发效率较高。
-
-2. **物理限制**：
-   对于 4 核 8G 实例，当并发超过 **3000** 以后，CPU 上下文切换和系统调用（Syscall）频率达到瓶颈。单机 5 节点 Workflow 每秒涉及约 60 万次 Channel 调度，网关模式下更涉及 40w+/s 的系统调用。
-
-3. **内存稳定性**：
-   在 3000 并发负载下，Worker 节点堆内存常驻约为 **170MB - 300MB**。由于深度使用了 `sync.Pool` 对象复用，即使在 P99 抖动时，系统也未出现严重的 GC 停顿。
-
-## 3. 如何使用 (Usage)
-
-压测工具入口是 [cmd/bench/main.go](../cmd/bench/main.go)。工具会先通过 `POST /sessions` 为每个虚拟用户创建 workflow session，再连接 `/realtime/{session_id}`，按固定间隔发送二进制音频包，并统计回包 RTT。
+压测工具入口是 [cmd/bench/main.go](../../cmd/bench/main.go)。工具会先通过 `POST /sessions` 为每个虚拟用户创建 workflow session，再连接 `/realtime/{session_id}`，按固定间隔发送二进制音频包，并统计回包 RTT。
 
 ### 第一步：启动服务端
 
@@ -188,7 +139,7 @@ Plan 字段说明：
 - `enable_pprof`: 是否采集目标服务 pprof。目标必须暴露 `/debug/pprof/*`
 - `output_dir`: 输出目录，默认当前目录
 
-### 输出与指标口径
+## 3. 输出与指标口径
 
 终端报告示例：
 
@@ -241,3 +192,15 @@ Min/Max:       0/32 ms
 go tool pprof reports/profile_benchmark_3000_5_1m0s.pprof
 go tool trace reports/trace_benchmark_3000_5_1m0s.out
 ```
+
+## 4. 历史数据
+
+基线与历史结果统一归档在 `docs/reports/`，文件名带采集月份：
+
+- [2026-05 基线报告](../reports/benchmark-2026-05.md)
+
+归档要求：
+
+- 新增数据必须记录机器规格、部署结构、连接池参数、commit 和目标 Workflow。
+- 环境或实现变化后不要覆盖旧报告，另建新文件并在本列表登记。
+- 跨环境、跨版本的数字不能直接对比。

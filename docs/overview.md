@@ -1,5 +1,7 @@
 # 核心特性 (Key Features)
 
+本文是 Voce 运行时能力的概览，具体用法与实现约束请参考文末链接。
+
 - **内存池化管理**：通过内存复用与引用计数（Ref-counting）机制，减少高频媒体流处理中的 GC 分配开销。
 - **Copy-on-Write**：基于 ReadOnly 与 Mutable 机制实现，确保数据在节点传输中的不可变性。
 - **双优先级调度**：控制信令（Signal）与媒体数据（Media）分离，确保在数据拥塞时，系统控制和信令信息仍能优先处理。
@@ -12,3 +14,11 @@
 - **完善的测试机制**：内置 `PluginTester` 与 `MockFlow`，支持对单个插件进行离线单元测试。
 - **调试工具**：包含可视化 Web 工作台（可视化 DAG 编排）和支持简单监控面板的 TUI 对话客户端。
 - **分布式网关集群 (Experimental)**：提供独立的网关接入层，支持多执行节点（Pod）水平扩展；网关将 Session 绑定到选定 Machine 的动态数据连接池，并具备 Pod 健康感知、重连窗口内的会话保留和超时清理能力。
+
+## 相关文档
+
+- [快速开始](guides/quick-start.md)：跑通单机与 Gateway 模式。
+- [Workflow 与 DAG](guides/workflow.md)：编排格式、契约校验与调度模式。
+- [插件开发](guides/plugin.md)：插件接口、生命周期与测试写法。
+- [接入协议](reference/protocol.md)：Session API 与实时报文格式。
+- [Gateway 架构](architecture/gateway.md)：分布式模式的能力与限制。

@@ -82,7 +82,7 @@ Gateway ── control connection ──► Machine registry
 
 The Gateway selects a Machine for each new Session and keeps its route stable. Data connections scale with Session load and preserve per-Session ordering. gRPC realtime streams currently connect directly to a Voce Machine and do not pass through the Gateway.
 
-See [Gateway Architecture](docs/gateway.md) for connection lifecycle, routing, and current limitations.
+See [Gateway Architecture](docs/architecture/gateway.md) for connection lifecycle, routing, and current limitations.
 
 ## What You Can Build
 
@@ -161,7 +161,7 @@ curl -X POST http://127.0.0.1:7001/sessions \
   -d '{"name":"benchmark"}'
 ```
 
-The response contains a `session_id`. Realtime WebSocket clients connect to `/realtime/{session_id}` using the binary format documented in [Integration Protocol](docs/protocol.md).
+The response contains a `session_id`. Realtime WebSocket clients connect to `/realtime/{session_id}` using the binary format documented in [Integration Protocol](docs/reference/protocol.md).
 
 For provider-backed Workflows, configure the required API keys in the Workflow before creating a Session.
 
@@ -196,7 +196,7 @@ make build-tui
 | **Scheduler** | Executes node events using isolated loops or a shared worker pool. |
 | **Gateway** | Maintains Machine health, Session affinity, and dynamic data connection pools. |
 
-Workflow definitions are JSON documents. Before execution, Voce verifies node identities, graph topology, and input/output contracts. See [Workflow and DAG](docs/workflow.md) for the complete format.
+Workflow definitions are JSON documents. Before execution, Voce verifies node identities, graph topology, and input/output contracts. See [Workflow and DAG](docs/guides/workflow.md) for the complete format.
 
 ## Built-in Plugins
 
@@ -208,7 +208,7 @@ Workflow definitions are JSON documents. Before execution, Voce verifies node id
 | TTS | MiniMax, ElevenLabs, OpenAI TTS |
 | Control and utilities | Interrupter, TEN VAD, Caption, Markdown Filter, Sink |
 
-Use [Plugin Development](docs/plugin.md) to implement a local Go plugin. Python and Node.js plugins can run as separate gRPC services through the experimental [Remote Plugin](docs/remote_plugin.md) runtime.
+Use [Plugin Development](docs/guides/plugin.md) to implement a local Go plugin. Python and Node.js plugins can run as separate gRPC services through the experimental [Remote Plugin](docs/guides/remote-plugin.md) runtime.
 
 ## API and Transports
 
@@ -236,7 +236,7 @@ curl http://127.0.0.1:7001/metrics
 
 Gateway and Machine processes expose their own `/metrics` endpoints; the Gateway does not aggregate Machine metrics. `GET /state` remains available on the Gateway for current Machine and connection-pool snapshots.
 
-See [Monitoring and Metrics](docs/monitor.md) for the metric inventory and PromQL examples.
+See [Observability](docs/guides/observability.md) for the metric inventory and PromQL examples.
 
 ## Performance
 
@@ -253,7 +253,7 @@ go run ./cmd/bench \
 
 The benchmark Workflow uses lightweight forwarding and simulated I/O nodes. Results measure runtime, protocol, and Gateway overhead; they do not represent the capacity or latency of external ASR, LLM, or TTS services.
 
-See [Benchmark Guide](docs/benchmark.md) for methodology, parameters, and historical results.
+See [Benchmark Guide](docs/guides/benchmark.md) for methodology and parameters; historical results live in [docs/reports](docs/reports/benchmark-2026-05.md).
 
 ## Development
 
@@ -289,18 +289,20 @@ sdks/remote_plugin/ Python and Node.js Remote Plugin SDKs
 
 ## Documentation
 
+Full index: [docs/README.md](docs/README.md).
+
 | Guide | Description |
 | --- | --- |
-| [Quick Start](docs/quick_start.md) | Local and Gateway startup instructions. |
-| [Key Features](docs/key_features.md) | Runtime capabilities and design summary. |
-| [Workflow and DAG](docs/workflow.md) | Workflow schema, graph validation, and scheduling. |
-| [Plugin Development](docs/plugin.md) | Plugin interfaces, properties, lifecycle, and testing. |
-| [Built-in Plugins](docs/plugins_list.md) | Supported model providers and utility plugins. |
-| [Integration Protocol](docs/protocol.md) | Session API, WebSocket packets, and gRPC transport. |
-| [Gateway Architecture](docs/gateway.md) | Machine registration, routing, and connection pools. |
-| [Remote Plugin](docs/remote_plugin.md) | Cross-language plugin runtime and SDK usage. |
-| [Monitoring and Metrics](docs/monitor.md) | OpenTelemetry metrics and Prometheus queries. |
-| [Benchmark Guide](docs/benchmark.md) | Load generator and benchmark methodology. |
+| [Overview](docs/overview.md) | Runtime capabilities and design summary. |
+| [Quick Start](docs/guides/quick-start.md) | Local and Gateway startup instructions. |
+| [Workflow and DAG](docs/guides/workflow.md) | Workflow schema, graph validation, and scheduling. |
+| [Plugin Development](docs/guides/plugin.md) | Plugin interfaces, properties, lifecycle, and testing. |
+| [Built-in Plugins](docs/reference/plugins.md) | Supported model providers and utility plugins. |
+| [Integration Protocol](docs/reference/protocol.md) | Session API, WebSocket packets, and gRPC transport. |
+| [Gateway Architecture](docs/architecture/gateway.md) | Machine registration, routing, and connection pools. |
+| [Remote Plugin](docs/guides/remote-plugin.md) | Cross-language plugin runtime and SDK usage. |
+| [Observability](docs/guides/observability.md) | OpenTelemetry metrics and Prometheus queries. |
+| [Benchmark Guide](docs/guides/benchmark.md) | Load generator and benchmark methodology. |
 
 ## Project Status
 
