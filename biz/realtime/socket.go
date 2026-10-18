@@ -2,76 +2,62 @@ package realtime
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync/atomic"
 
 	"github.com/lxzan/gws"
 	"github.com/wnnce/voce/internal/engine"
 	"github.com/wnnce/voce/internal/protocol"
-	"github.com/wnnce/voce/internal/schema"
 )
 
-// SocketHandler manages the WebSocket connection and synchronizes its state with the workflow session.
+// SocketHandler owns only WebSocket protocol callbacks. Session owns the
+// Workflow input/output lifecycle through its lease.
 type SocketHandler struct {
 	gws.BuiltinEventHandler
 	ctx     context.Context
-	cancel  context.CancelFunc
-	socket  *gws.Conn
 	session *engine.Session
 	sm      *engine.SessionManager
-	running atomic.Bool
-	held    bool
+	lease   engine.Lease
+	socket  *gws.Conn
+	active  atomic.Bool
+	closed  atomic.Bool
 }
 
-func NewSocketHandler(sm *engine.SessionManager, session *engine.Session) *SocketHandler {
-	sessionCtx, cancel := context.WithCancel(session.Workflow.Context())
+func NewSocketHandler(sm *engine.SessionManager, session *engine.Session, lease engine.Lease) *SocketHandler {
 	return &SocketHandler{
-		ctx:     sessionCtx,
-		cancel:  cancel,
+		ctx:     session.Workflow.Context(),
 		session: session,
 		sm:      sm,
+		lease:   lease,
 	}
 }
 
 func (s *SocketHandler) OnOpen(socket *gws.Conn) {
 	s.socket = socket
-
-	if !s.session.Acquire() {
-		slog.WarnContext(s.ctx, "session is busy, closing connection", "sessionID", s.session.Key.String())
-		_ = socket.WriteClose(1008, []byte("session is busy"))
+	if !s.session.SetWriter(s.lease, s.withPacketWrite(socket)) {
+		slog.WarnContext(s.ctx, "session writer mount failed",
+			"lease", uint64(s.lease),
+			"state", s.session.Workflow.State().String())
+		_ = socket.WriteClose(1008, []byte("session is unavailable"))
 		return
 	}
-	s.held = true
-
-	s.running.Store(true)
-
-	// Resume the workflow if it was paused from a previous session (Persistence Support)
-	if s.session.Workflow.State() == engine.WorkflowStatePaused {
-		if err := s.session.Workflow.Resume(); err != nil {
-			slog.ErrorContext(s.ctx, "resume workflow failed", "error", err)
-		}
+	if err := s.session.Activate(s.lease); err != nil {
+		slog.ErrorContext(s.ctx, "activate workflow failed", "error", err)
+		_ = s.session.Unbind(s.lease, false)
+		_ = socket.WriteClose(1011, []byte("workflow unavailable"))
+		return
 	}
-	go s.writeLoop()
+	s.active.Store(true)
 	slog.InfoContext(s.ctx, "socket connected")
 }
 
 func (s *SocketHandler) OnClose(_ *gws.Conn, _ error) {
-	s.running.Store(false)
-
-	if s.held {
-		s.session.Release()
+	if !s.closed.CompareAndSwap(false, true) {
+		return
 	}
-
-	if s.cancel != nil {
-		s.cancel()
-	}
-
-	// Pause instead of Stop to allow for 'Persistent Sessions' where a client can reconnect later.
-	if s.session.Workflow.State() == engine.WorkflowStateRunning {
-		if err := s.session.Workflow.Pause(); err != nil {
-			slog.ErrorContext(s.ctx, "socket close, pause workflow failed", "error", err)
-		}
-	}
+	_ = s.session.Unbind(s.lease, s.active.Load())
+	s.active.Store(false)
 	slog.InfoContext(s.ctx, "socket disconnected")
 }
 
@@ -80,11 +66,13 @@ func (s *SocketHandler) OnPing(socket *gws.Conn, _ []byte) {
 	_ = socket.WritePong(nil)
 }
 
-// OnMessage handles incoming packets from the client and routes them to the workflow engine.
-func (s *SocketHandler) OnMessage(socket *gws.Conn, message *gws.Message) {
+func (s *SocketHandler) OnMessage(_ *gws.Conn, message *gws.Message) {
 	body := message.Bytes()
 	defer message.Close()
 	if message.Opcode != gws.OpcodeBinary {
+		return
+	}
+	if !s.active.Load() {
 		return
 	}
 	packet := protocol.AcquirePacket()
@@ -95,55 +83,30 @@ func (s *SocketHandler) OnMessage(socket *gws.Conn, message *gws.Message) {
 	}
 
 	realtimeMetrics.websocketBytesReceived.Add(realtimeMetricContext, int64(len(body)))
-
-	switch packet.Type {
-	case protocol.TypeAudio:
-		audio := schema.NewAudio("audio", engine.AudioSampleRate, engine.AudioChannels)
-		audio.SetBytes(packet.Payload)
-		if err := s.session.Workflow.SendToHead(audio.ReadOnly()); err != nil {
-			slog.ErrorContext(s.ctx, "send audio to workflow failed", "error", err)
-			audio.Release()
-		}
-	case protocol.TypeClose:
-		slog.InfoContext(s.ctx, "received close packet, stopping session")
+	err := s.session.ReceivePacket(s.lease, packet)
+	if errors.Is(err, engine.ErrSessionCloseInput) {
 		s.sm.RemoveSession(s.session.Key)
-		if err := s.socket.WriteClose(1000, nil); err != nil {
-			slog.ErrorContext(s.ctx, "close socket failed", "error", err)
+		if closeErr := s.socket.WriteClose(1000, nil); closeErr != nil {
+			slog.ErrorContext(s.ctx, "close socket failed",
+				"error", closeErr)
 		}
+		return
+	}
+	if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, engine.ErrLeaseInvalid) {
+		slog.ErrorContext(s.ctx, "websocket input handling failed",
+			"type", packet.Type, "error", err)
 	}
 }
 
-// writeLoop serializes workflow output packets into the WebSocket connection.
-func (s *SocketHandler) writeLoop() {
-	defer func() {
-		if !s.running.Load() {
-			return
-		}
-		if err := s.socket.WriteClose(1000, nil); err != nil {
-			slog.ErrorContext(s.ctx, "close socket failed", "error", err)
-		}
-	}()
-	for {
-		if s.ctx.Err() != nil || !s.running.Load() {
-			return
-		}
-		select {
-		case <-s.ctx.Done():
-			return
-		case packet, ok := <-s.session.Workflow.Output():
-			if !ok {
-				return
-			}
-			header := packet.Header()
-			payload := packet.Payload
+func (s *SocketHandler) withPacketWrite(socket *gws.Conn) engine.PacketWriter {
+	return func(packet *protocol.Packet) error {
+		header := packet.Header()
+		payload := packet.Payload
 
-			realtimeMetrics.websocketBytesSent.Add(realtimeMetricContext, int64(len(header)+len(payload)))
+		realtimeMetrics.websocketBytesSent.Add(realtimeMetricContext, int64(len(header)+len(payload)))
+		slog.DebugContext(s.ctx, "send packet to client",
+			"type", packet.Type, "size", len(payload))
 
-			slog.DebugContext(s.ctx, "Send packet to client", "type", packet.Type, "size", len(payload))
-			if err := s.socket.Writev(gws.OpcodeBinary, header, payload); err != nil {
-				slog.ErrorContext(s.ctx, "websocket write binary packet failed", "error", err)
-			}
-			protocol.ReleasePacket(packet)
-		}
+		return socket.Writev(gws.OpcodeBinary, header, payload)
 	}
 }

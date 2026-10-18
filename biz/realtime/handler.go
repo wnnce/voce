@@ -32,9 +32,14 @@ func (h *Handler) Connect(w http.ResponseWriter, request *http.Request) error {
 	if state != engine.WorkflowStateRunning && state != engine.WorkflowStatePaused {
 		return errcode.New(http.StatusBadRequest, http.StatusBadRequest, "Session is not available")
 	}
-	upgrader := gws.NewUpgrader(NewSocketHandler(h.sm, session), &gws.ServerOption{})
+	lease, err := session.Bind()
+	if err != nil {
+		return errcode.New(http.StatusConflict, http.StatusConflict, "session is busy")
+	}
+	upgrader := gws.NewUpgrader(NewSocketHandler(h.sm, session, lease), &gws.ServerOption{})
 	socket, err := upgrader.Upgrade(w, request)
 	if err != nil {
+		_ = session.Unbind(lease, false)
 		return errcode.New(http.StatusInternalServerError, http.StatusInternalServerError, "Upgrade websocket failed")
 	}
 	go socket.ReadLoop()

@@ -19,7 +19,7 @@ type Session struct {
 	Workflow   *Workflow
 	LastActive atomic.Int64 // Unix timestamp in milliseconds for idle timeout cleanup
 	CreatedAt  time.Time
-	busy       atomic.Bool // Internal flag to prevent multiple concurrent connections
+	binding    sessionBinding
 }
 
 type SessionObserver func(s *Session)
@@ -140,15 +140,19 @@ func (sm *SessionManager) startCleanupTicker() {
 func (sm *SessionManager) Stop() {
 	sm.mu.Lock()
 	count := len(sm.sessions)
+	sessions := make([]*Session, 0, count)
 	for _, s := range sm.sessions {
-		s.Workflow.Stop()
+		sessions = append(sessions, s)
 	}
 	sm.sessions = make(map[protocol.SessionKey]*Session)
-
 	if sm.cancel != nil {
 		sm.cancel()
 	}
 	sm.mu.Unlock()
+	for _, s := range sessions {
+		s.closeWriter()
+		s.Workflow.Stop()
+	}
 	engineSessionMetrics.addActive(-int64(count))
 }
 
@@ -242,6 +246,7 @@ func (sm *SessionManager) RemoveSession(key protocol.SessionKey) {
 	}
 	sm.mu.Unlock()
 	engineSessionMetrics.addActive(-1)
+	s.closeWriter()
 	for _, fn := range observers {
 		fn(s)
 	}
@@ -278,6 +283,7 @@ func (sm *SessionManager) Cleanup() {
 	engineSessionMetrics.addActive(-int64(len(toBeStopped)))
 
 	for _, s := range toBeStopped {
+		s.closeWriter()
 		for _, fn := range observers {
 			fn(s)
 		}
@@ -288,14 +294,6 @@ func (sm *SessionManager) Cleanup() {
 
 func (s *Session) UpdateActivity() {
 	s.LastActive.Store(time.Now().UnixMilli())
-}
-
-func (s *Session) Acquire() bool {
-	return s.busy.CompareAndSwap(false, true)
-}
-
-func (s *Session) Release() {
-	s.busy.Store(false)
 }
 
 // cloneAndMergeConfig creates a copy of the workflow configuration and applies
