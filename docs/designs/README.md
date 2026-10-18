@@ -7,5 +7,6 @@
 | 编号 | 主题 | 状态 |
 | --- | --- | --- |
 | 01 | [Remote Plugin 初版设计](01-remote-plugin/design.md) | 已实现（Experimental） |
+| 02 | [连接层抽象设计](02-connection-layer/design.md) | 部分实现（Session/WS/gRPC） |
 
 写作规范见 [`.agents/skills/write-design-doc`](../../.agents/skills/write-design-doc/SKILL.md)。返回[文档首页](../README.md)。
