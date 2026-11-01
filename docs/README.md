@@ -18,7 +18,7 @@
 | --- | --- |
 | [核心能力概览](overview.md) | 运行时特性、调度模型与适用场景 |
 | [快速开始](guides/quick-start.md) | 本地编译、Docker 运行与 Gateway 启动 |
-| [接入协议](reference/protocol.md) | Session REST API、WebSocket 报文与 gRPC 传输 |
+| [接入协议](reference/protocol.md) | Session REST API、WebSocket / gRPC 接入与 RTC 重写状态 |
 
 ## 使用与开发指南
 
@@ -52,6 +52,7 @@
 | 报告 | 说明 |
 | --- | --- |
 | [2026-05 Benchmark 基线](reports/benchmark-2026-05.md) | 单机与网关模式 RTT / 吞吐基线 |
+| [2026-10 RTC 音频缓冲](reports/benchmark-2026-10-rtc.md) | 已删除旧实现的历史测量，重写后的性能另行验证 |
 
 ## 其他
 

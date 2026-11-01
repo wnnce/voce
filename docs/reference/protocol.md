@@ -47,7 +47,7 @@ Voce 遵循 **“先控制，后数据”** 的原则。所有的长连接流必
 - **请求体 (Request)**:
   ```json
   {
-    "name": "workflow_name", // 对应配置中的 Workflow ID
+    "name": "workflow_name", // 工作流的 name 字段（不是 id）
     "session_id": "optional", // 可选，由调用方指定
     "properties": {
       // 动态配置注入，可覆盖节点默认参数
@@ -71,9 +71,9 @@ Voce 的会话有 **空闲超时机制 (默认 1 分钟)**。
 
 ---
 
-## 3. 传输协议定义 (Dual-Protocol Support)
+## 3. 传输协议定义
 
-Voce 目前同时支持 **WebSocket** 与 **gRPC** 两种流式连接。
+Voce 支持 **WebSocket** 与 **gRPC** 两种流式连接。
 
 ### 3.1 方案 A：WebSocket (Binary Custom Packet)
 
@@ -94,6 +94,28 @@ Voce 目前同时支持 **WebSocket** 与 **gRPC** 两种流式连接。
 
 - **服务定义**: `api/voce/v1/voce.proto`
 - **连接元数据 (Metadata)**: 连接建立时，客户端必须在 Context Metadata 中携带 `session_id: <ID>`。
+
+### 3.3 Agora RTC 接入
+
+单机模式支持通过 Agora 频道接入：音频走 RTC 双向传输，字幕、打断、语音事件等非音频包走 RTM。
+
+`POST /agora/{id}` 为已创建的 session 申请凭证：
+
+| 字段 | 说明 |
+| --- | --- |
+| `app_id` | Agora App ID |
+| `channel` | 频道名，服务端由 session key 派生 |
+| `uid` | 客户端账号，服务端签发，客户端必须使用该值入会 |
+| `rtc_token` | 加入 RTC 频道的 token |
+| `rtm_token` | 登录 RTM 的 token |
+| `expire_at` | 凭证过期时间（Unix 秒） |
+
+- 非音频包以 base64 编码的 Packet 发布到 RTM topic `events`，会话结束时下发 `TypeClose`；
+- 重复请求返回同一份凭证（幂等）；同一 session 已有连接时返回 409；
+- 需要顶层 `agora.app_id` / `agora.certificate` 配置，未配置时不注册该路由；
+- RTC 只在 standalone 装配，gateway 不代理该端点。
+
+详见 [Agora RTC 接入设计](../designs/03-agora-rtc/design.md)。
 
 ---
 
