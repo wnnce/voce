@@ -18,6 +18,7 @@ type AppContainer struct {
 	Metrics  http.Handler
 	Machine  *handler.MachineHandler
 	Realtime *realtime.Handler
+	Agora    httpx.WrapHandlerFunc
 	Grpc     pb.VoceServiceServer
 }
 
@@ -46,6 +47,11 @@ func RegisterVoceRouter(router chi.Router, container AppContainer) {
 	})
 
 	router.Get("/realtime/{id}", httpx.Wrap(container.Realtime.Connect))
+
+	// Agora attach is standalone-only: the gateway never builds this handler.
+	if container.Agora != nil {
+		router.Post("/agora/{id}", httpx.Wrap(container.Agora))
+	}
 
 	if container.Machine != nil {
 		router.Get("/pool", httpx.Wrap(container.Machine.PoolConnection))

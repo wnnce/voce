@@ -48,6 +48,12 @@ type VoceConfig struct {
 	PluginServers []PluginServerConfig `json:"plugin_servers" yaml:"plugin_servers"`
 }
 
+// AgoraConfig holds the App ID and certificate used to sign session credentials.
+type AgoraConfig struct {
+	AppID       string `json:"app_id" yaml:"app_id"`
+	Certificate string `json:"certificate" yaml:"certificate"`
+}
+
 type PluginServerConfig struct {
 	URL       string `json:"url" yaml:"url"`
 	Namespace string `json:"namespace" yaml:"namespace"`
@@ -73,6 +79,7 @@ type GatewayServerConfig struct {
 type VoceBootstrap struct {
 	Logging logging.Config `json:"logging" yaml:"logging"`
 	Redis   RedisConfig    `json:"redis" yaml:"redis"`
+	Agora   AgoraConfig    `json:"agora" yaml:"agora"`
 	Server  VoceConfig     `json:"server" yaml:"server"`
 }
 

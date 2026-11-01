@@ -10,6 +10,10 @@ server:
       namespace: ""
       enable: false
 
+agora:
+  app_id: ''
+  certificate: ''
+
 logging:
   console: true
   level: INFO

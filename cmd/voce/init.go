@@ -14,6 +14,7 @@ import (
 	"github.com/wnnce/voce/internal/machine"
 	"github.com/wnnce/voce/internal/metadata"
 	"github.com/wnnce/voce/internal/remote"
+	agora "github.com/wnnce/voce/internal/rtc/agora"
 	"github.com/wnnce/voce/internal/telemetry"
 	"github.com/wnnce/voce/pkg/logging"
 	"go.opentelemetry.io/otel"
@@ -24,6 +25,7 @@ type appBase struct {
 	sm        *engine.SessionManager
 	wm        engine.WorkflowConfigManager
 	rm        *remote.Manager
+	agora     *agora.Service
 	store     *engine.PluginStore
 	telemetry *telemetry.Telemetry
 }
@@ -40,9 +42,24 @@ func InitApplication(ctx context.Context, cfg config.VoceBootstrap) (route.AppCo
 		initStandaloneMode(base)
 	}
 
+	if cfg.Server.Mode != "gateway" && cfg.Agora.AppID != "" {
+		service, err := agora.NewService(agora.Config{
+			AppID:          cfg.Agora.AppID,
+			AppCertificate: cfg.Agora.Certificate,
+		}, base.sm)
+		if err != nil {
+			return route.AppContainer{}, nil, err
+		}
+		base.agora = service
+		base.container.Agora = agora.NewHandler(base.sm, service).Attach
+	}
+
 	cleanup := func() {
 		if base.rm != nil {
 			base.rm.Shutdown()
+		}
+		if base.agora != nil {
+			base.agora.Close()
 		}
 		base.sm.Stop()
 		if err := base.telemetry.Shutdown(context.Background()); err != nil {
