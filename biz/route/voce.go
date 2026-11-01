@@ -51,5 +51,5 @@ func RegisterVoceRouter(router chi.Router, container AppContainer) {
 		router.Get("/pool", httpx.Wrap(container.Machine.PoolConnection))
 	}
 
-	router.Handle("/*", http.HandlerFunc(handler.WebHandler))
+	router.Handle("/*", http.HandlerFunc(httpx.WebHandler))
 }
