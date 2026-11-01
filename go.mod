@@ -2,8 +2,12 @@ module github.com/wnnce/voce
 
 go 1.27.0
 
+replace github.com/AgoraIO-Extensions/Agora-Golang-Server-SDK/v2 => ./libs/agora-server-sdk
+
 require (
 	cloud.google.com/go/speech v1.30.0
+	github.com/AgoraIO-Extensions/Agora-Golang-Server-SDK/v2 v2.2.9
+	github.com/AgoraIO/Tools/DynamicKey/AgoraDynamicKey/go/src v0.0.0-20240807100336-95d820182fef
 	github.com/bytedance/sonic v1.15.3
 	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-chi/cors v1.2.2
