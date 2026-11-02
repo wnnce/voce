@@ -338,7 +338,7 @@ export function useSessionController(): Controller {
       connectionRef.current = connection;
 
       try {
-        await connection.open({ sessionId: sessionId || undefined }, {
+        await connection.open({ sessionId }, {
           onMessage: (packet) => handlersRef.current.onMessage(packet),
           onState: (state, detail) => handlersRef.current.onState(state, detail),
           onMalformed: () => handlersRef.current.onMalformed?.(),
@@ -449,8 +449,7 @@ export function useSessionController(): Controller {
       return; // connect() already published the error state
     }
 
-    // Audio is only opened for transports that carry live traffic; the demo
-    // provider replays scripted packets and needs no microphone permission.
+    // 连接建立后启动音频采集与播放
     if (provider.requiresSession) {
       await startAudio().catch((cause: Error) => {
         store.getState().setError(cause.message);

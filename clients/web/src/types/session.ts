@@ -11,7 +11,7 @@ export type ConnectionState =
   | 'error';
 
 /** Registered transport ids. Adding one means registering a provider. */
-export type ConnectionKind = 'websocket' | 'demo';
+export type ConnectionKind = 'websocket';
 
 export type ChatRole = 'user' | 'assistant';
 

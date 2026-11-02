@@ -2,58 +2,89 @@ import type { Packet } from '@/realtime/packet';
 import type { ConnectionKind, ConnectionState } from '@/types/session';
 
 /**
- * Connection layer contract.
+ * 实时连接层核心契约。
  *
- * Nothing above this layer knows which transport is in use: the connection
- * pushes inbound packets through `handlers.onMessage`, and the page pushes
- * outbound packets through `publish`. Adding a transport means registering a
- * provider — no changes in the controller, the store, or the page.
+ * 页面层与控制器仅通过此抽象与底层通讯：
+ * - 连接通过 `handlers.onMessage` 推送已解码的入站 VC 封包
+ * - 页面/控制器通过 `publish` 发送出站封包
+ * - 连接生命周期通过 `handlers.onState` 同步
+ *
+ * 新增传输方式只需注册一个 `ConnectionProvider`，无需改动状态管理与业务视图。
  */
 
 export type { ConnectionKind };
 
 export interface ConnectionTarget {
-  /** Required by transports that attach to an existing session lease. */
+  /** 会话 ID，附加到后端 Session 时必填 */
   sessionId?: string;
 }
 
 export interface ConnectionHandlers {
-  /** Inbound packet, already decoded and validated. */
+  /** 已校验并完成解码的入站数据包 */
   onMessage: (packet: Packet) => void;
-  /** Transport lifecycle. 'active' means publish() is legal. */
+  /** 连接状态变更通知。进入 'active' 状态后方可进行有效 publish */
   onState: (state: ConnectionState, detail?: string) => void;
-  /** Frame that failed validation. The connection stays open. */
+  /** 格式错误帧回调。连接仍然保持，通知上层记录或提示 */
   onMalformed?: () => void;
 }
 
 export interface RealtimeConnection {
+  /** 当前连接类型标识 */
   readonly kind: ConnectionKind;
+  /** 建立并启动连接。成功后进入 active 状态，失败时 reject */
   open(target: ConnectionTarget, handlers: ConnectionHandlers): Promise<void>;
-  /** Outbound packet. Safe to call before 'active'; frames are dropped. */
+  /** 发送出站数据包。在非 active 状态下调用安全丢弃，不阻塞 */
   publish(packet: Packet): void;
+  /** 主动断开并释放所有底层网络资源与监听器 */
   close(): void;
 }
 
 export interface ConnectionProvider {
-  kind: ConnectionKind;
-  label: string;
-  description: string;
-  /** true when the provider needs a REST-created session before opening. */
-  requiresSession: boolean;
+  /** 唯一标识 */
+  readonly kind: ConnectionKind;
+  /** UI 显示名称 */
+  readonly label: string;
+  /** UI 描述信息 */
+  readonly description: string;
+  /** 是否需要服务端先通过 REST 创建 Session 才能连接 */
+  readonly requiresSession: boolean;
+  /** 创建连接实例工厂方法 */
   create: () => RealtimeConnection;
 }
 
 const providers = new Map<ConnectionKind, ConnectionProvider>();
 
+/**
+ * 注册连接实现提供者。
+ */
 export function registerConnection(provider: ConnectionProvider): void {
   providers.set(provider.kind, provider);
 }
 
-/** Descriptors for UI rendering, in registration order. */
+/**
+ * 注销指定的连接实现。
+ */
+export function unregisterConnection(kind: ConnectionKind): boolean {
+  return providers.delete(kind);
+}
+
+/**
+ * 检查指定连接实现是否已注册。
+ */
+export function hasConnection(kind: ConnectionKind): boolean {
+  return providers.has(kind);
+}
+
+/**
+ * 获取当前已注册的所有连接实现列表（按注册顺序排列）。
+ */
 export function listConnections(): ConnectionProvider[] {
   return [...providers.values()];
 }
 
+/**
+ * 根据类型创建新的实时连接实例。
+ */
 export function createConnection(kind: ConnectionKind): RealtimeConnection {
   const provider = providers.get(kind);
   if (!provider) {
@@ -62,6 +93,9 @@ export function createConnection(kind: ConnectionKind): RealtimeConnection {
   return provider.create();
 }
 
+/**
+ * 获取指定连接类型的元数据描述。
+ */
 export function describesConnection(kind: ConnectionKind): ConnectionProvider | undefined {
   return providers.get(kind);
 }
