@@ -9,11 +9,21 @@ runs:
         go-version: "1.27.0"
         cache: true
 
+    - name: Cache External Libs
+      uses: actions/cache@v4
+      with:
+        path: |
+          libs/ten-vad
+          libs/agora-server-sdk
+        key: backend-libs-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Makefile') }}
+        restore-keys: |
+          backend-libs-${{ runner.os }}-${{ runner.arch }}-
+
     - name: Install System Dependencies
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y libswresample-dev libavutil-dev libc++-dev libc++abi-dev
+        sudo apt-get install -y libswresample-dev libavutil-dev libc++-dev libc++abi-dev unzip curl
         make deps
 
     - name: Prep Web Dist for Embedding

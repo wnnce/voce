@@ -39,7 +39,7 @@ Full directory documentation lives in `README.md`; the documentation structure i
 | `clients/web` | React + TypeScript workspace editor | `dist` is embedded into the backend via `go:embed` |
 | `clients/voce-tui` | Rust TUI client | Optimize for stability, low overhead, and observability |
 | `sdks/remote_plugin` | Python / Node.js SDKs | Must track `api/plugin/v1` |
-| `libs/ten-vad` | External VAD library (gitignored) | Fetched by `make deps`; no business changes |
+| `libs/ten-vad`, `libs/agora-server-sdk` | External VAD & Agora Server SDK libraries (gitignored) | Fetched by `make deps`; no business changes |
 | `cmd` | `voce`, `gateway`, `bench` entry points | Wiring only; no business logic |
 | `docs` | Project documentation | Structure defined in `docs/README.md`; update the index when adding or moving files |
 | `.agents/skills` | Agent skills | `test-conventions`, `write-design-doc` |
@@ -269,7 +269,7 @@ Follow `.agents/skills/test-conventions/SKILL.md` by default. In addition:
 - Run `-race` for packages affected by changes to `internal/engine`, `internal/schema`, `internal/gateway`, or `internal/machine`.
 - Hot-path changes (protocol codec, Scheduler / Node input, schema pools, pool Bind / Unbind, audio resampling) require a benchmark and a report of `ns/op`, `B/op`, and `allocs/op`.
 - Realtime-path changes must verify at minimum: context cancellation, residual buffer cleanup, start/end signals, and audio/video frame forwarding.
-- Build prerequisites: CGO and FFmpeg dev libraries; `libs/ten-vad` fetched by `make deps`; `clients/web/dist` built before `go build` (embedded via `go:embed`).
+- Build prerequisites: CGO and FFmpeg dev libraries; `libs/ten-vad` and `libs/agora-server-sdk` fetched by `make deps`; `clients/web/dist` built before `go build` (embedded via `go:embed`).
 - Commands: `make test-backend` / `test-gateway` / `test-tui`; see `make help` for the full list.
 
 ## 13. Pre-submit checklist
