@@ -1,6 +1,9 @@
 #ifndef VOCE_RTM_BRIDGE_H
 #define VOCE_RTM_BRIDGE_H
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "C_IAgoraRtmClient.h"
 #include "C_IAgoraStreamChannel.h"
 

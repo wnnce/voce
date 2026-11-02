@@ -115,17 +115,13 @@ Audio → ASR → Translation LLM → TTS → Audio
 
 - Go 1.27+
 - Git
-- FFmpeg 开发库（`libswresample` 和 `libavutil`）
+- FFmpeg 开发库
 - Node.js 和 pnpm，用于构建内嵌的 Workflow 编辑器
 
-安装音频处理依赖：
+一键安装系统编译依赖（支持 macOS, Ubuntu, Debian, Arch Linux）：
 
 ```bash
-# Ubuntu / Debian
-sudo apt-get install libswresample-dev libavutil-dev
-
-# macOS
-brew install ffmpeg
+./scripts/install-sys-deps.sh
 ```
 
 ### 构建并启动

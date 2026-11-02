@@ -269,7 +269,7 @@ Follow `.agents/skills/test-conventions/SKILL.md` by default. In addition:
 - Run `-race` for packages affected by changes to `internal/engine`, `internal/schema`, `internal/gateway`, or `internal/machine`.
 - Hot-path changes (protocol codec, Scheduler / Node input, schema pools, pool Bind / Unbind, audio resampling) require a benchmark and a report of `ns/op`, `B/op`, and `allocs/op`.
 - Realtime-path changes must verify at minimum: context cancellation, residual buffer cleanup, start/end signals, and audio/video frame forwarding.
-- Build prerequisites: CGO and FFmpeg dev libraries; `libs/ten-vad` and `libs/agora-server-sdk` fetched by `make deps`; `clients/web/dist` built before `go build` (embedded via `go:embed`).
+- Build prerequisites: CGO and FFmpeg dev libraries (install via `scripts/install-sys-deps.sh`); `libs/ten-vad` and `libs/agora-server-sdk` fetched by `make deps` (`scripts/prepare-libs.sh`); `clients/web/dist` built before `go build` (embedded via `go:embed`).
 - Commands: `make test-backend` / `test-gateway` / `test-tui`; see `make help` for the full list.
 
 ## 13. Pre-submit checklist

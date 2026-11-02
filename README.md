@@ -115,17 +115,13 @@ The repository includes two example Workflows:
 
 - Go 1.27+
 - Git
-- FFmpeg development libraries (`libswresample` and `libavutil`)
+- FFmpeg development libraries
 - Node.js and pnpm for the embedded Workflow editor
 
-Install the native audio dependencies:
+Install the system build dependencies (supports macOS, Ubuntu, Debian, Arch Linux):
 
 ```bash
-# Ubuntu / Debian
-sudo apt-get install libswresample-dev libavutil-dev
-
-# macOS
-brew install ffmpeg
+./scripts/install-sys-deps.sh
 ```
 
 ### Build and run

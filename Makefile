@@ -1,4 +1,4 @@
-.PHONY: all build build-gateway build-web build-tui build-all test test-gateway lint fmt clean help deps generate agora-deps
+.PHONY: all build build-gateway build-web build-tui build-all test test-gateway lint fmt clean help deps generate
 
 # Configuration
 BINARY_NAME=voce
@@ -10,11 +10,6 @@ GATEWAY_CMD_PATH=./cmd/gateway
 WEB_DIR=clients/web
 TUI_DIR=clients/voce-tui
 LIBS_DIR=libs
-TEN_VAD_DIR=$(LIBS_DIR)/ten-vad
-TEN_VAD_REPO=https://github.com/TEN-framework/ten-vad.git
-AGORA_SDK_DIR=$(LIBS_DIR)/agora-server-sdk
-AGORA_SDK_REPO=https://github.com/AgoraIO-Extensions/Agora-Golang-Server-SDK.git
-AGORA_SDK_TAG=v2.6.6
 
 all: build-all
 
@@ -43,27 +38,8 @@ build-tui:
 	@cp $(TUI_DIR)/target/release/$(TUI_NAME) $(BIN_DIR)/
 
 # 4. Dependencies
-deps: $(TEN_VAD_DIR) agora-deps
-
-$(TEN_VAD_DIR):
-	@echo "Checking ten-vad in $(LIBS_DIR)..."
-	@mkdir -p $(LIBS_DIR)
-	@if [ ! -d "$(TEN_VAD_DIR)" ]; then \
-		echo "Cloning ten-vad library..."; \
-		git clone $(TEN_VAD_REPO) $(TEN_VAD_DIR); \
-	fi
-
-agora-deps:
-	@echo "Checking agora-server-sdk in $(LIBS_DIR)..."
-	@mkdir -p $(LIBS_DIR)
-	@if [ ! -d "$(AGORA_SDK_DIR)" ]; then \
-		echo "Cloning agora-server-sdk ($(AGORA_SDK_TAG))..."; \
-		git clone --depth 1 -b $(AGORA_SDK_TAG) $(AGORA_SDK_REPO) $(AGORA_SDK_DIR); \
-	fi
-	@if [ ! -d "$(AGORA_SDK_DIR)/agora_sdk" ] && [ ! -d "$(AGORA_SDK_DIR)/agora_sdk_mac" ]; then \
-		echo "Installing Agora native C/C++ SDK binaries..."; \
-		cd $(AGORA_SDK_DIR) && ./scripts/install_agora_sdk.sh; \
-	fi
+deps:
+	@./scripts/prepare-libs.sh
 
 # 5. Build Everything
 build-all: build build-gateway build-tui
