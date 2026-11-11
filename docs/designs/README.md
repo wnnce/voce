@@ -7,6 +7,7 @@
 | 编号 | 主题 | 状态 |
 | --- | --- | --- |
 | 01 | [Remote Plugin 初版设计](01-remote-plugin/design.md) | 已实现（Experimental） |
+| 02 | [实时同传与双语字幕插件设计](02-realtime-translation/design.md) | 拟议设计 |
 | 02 | [连接层抽象设计](02-connection-layer/design.md) | 部分实现（Session/WS/gRPC） |
 | 03 | [Agora RTC 接入设计](03-agora-rtc/design.md) | 已实现（仅 standalone） |
 | 04 | [Web 对话页设计与实现计划](04-web-conversation/design.md) | 已实现并集成至 Studio (Voice Playground) |
