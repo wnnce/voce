@@ -78,7 +78,33 @@ export interface SessionHealth {
   created_at: string;
 }
 
+export interface WebRTCProviderInfo {
+  name: string;
+  label: string;
+  description: string;
+}
+
+export interface WebRTCCredentials {
+  provider?: string;
+  app_id: string;
+  pub_stream_id?: string;
+  sub_stream_id?: string;
+  token?: string;
+  expire_at?: string;
+  server_session_id?: string;
+  server_track_name?: string;
+  client_track_name?: string;
+  base_url: string;
+  stuns?: string[];
+}
+
 export const sessionApi = {
+  /**
+   * 获取支持的 WebRTC 提供者列表及默认提供者。
+   */
+  getWebRTCProviders: () =>
+    call<{ default: string; providers: WebRTCProviderInfo[] }>('/webrtc/providers'),
+
   /**
    * 创建工作流会话。
    *
@@ -108,6 +134,16 @@ export const sessionApi = {
    */
   destroy: (sessionId: string) =>
     call<null>(`/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' }),
+
+  /**
+   * 获取 WebRTC 会话凭据与信令信息（可指定具体的 provider）。
+   */
+  attachWebRTC: (sessionId: string, provider?: string) => {
+    const url = provider
+      ? `/webrtc/${encodeURIComponent(sessionId)}/${encodeURIComponent(provider)}`
+      : `/webrtc/${encodeURIComponent(sessionId)}`;
+    return call<WebRTCCredentials>(url, { method: 'POST' });
+  },
 };
 
 /**

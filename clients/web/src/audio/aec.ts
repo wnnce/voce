@@ -26,9 +26,14 @@ export async function requestMicrophone(request: MicrophoneRequest): Promise<Med
     );
   }
 
+  const deviceId =
+    request.deviceId && request.deviceId !== 'default-input'
+      ? { exact: request.deviceId }
+      : undefined;
+
   return navigator.mediaDevices.getUserMedia({
     audio: {
-      deviceId: request.deviceId ? { exact: request.deviceId } : undefined,
+      deviceId,
       echoCancellation: { ideal: true },
       noiseSuppression: { ideal: true },
       autoGainControl: { ideal: true },

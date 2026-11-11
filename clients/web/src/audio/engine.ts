@@ -46,7 +46,7 @@ export interface CaptureHandle {
 }
 
 async function applySink(element: HTMLAudioElement, deviceId: string): Promise<boolean> {
-  if (!deviceId) return false;
+  if (!deviceId || deviceId === 'default-output') return false;
   const withSink = element as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
   if (!withSink.setSinkId) return false;
   try {

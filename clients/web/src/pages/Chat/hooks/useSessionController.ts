@@ -331,18 +331,23 @@ export function useSessionController(): Controller {
 
   const connect = useCallback(
     async (sessionId: string) => {
-      const transport = store.getState().config.transport;
+      const { transport, webrtcProvider, inputDeviceId, outputDeviceId, captureEnabled } =
+        store.getState().config;
       connectionRef.current?.close();
 
       const connection = createConnection(transport);
       connectionRef.current = connection;
 
       try {
-        await connection.open({ sessionId }, {
-          onMessage: (packet) => handlersRef.current.onMessage(packet),
-          onState: (state, detail) => handlersRef.current.onState(state, detail),
-          onMalformed: () => handlersRef.current.onMalformed?.(),
-        });
+        await connection.open(
+          { sessionId, inputDeviceId, outputDeviceId, captureEnabled, webrtcProvider },
+          {
+            onMessage: (packet) => handlersRef.current.onMessage(packet),
+            onState: (state, detail) => handlersRef.current.onState(state, detail),
+            onMalformed: () => handlersRef.current.onMalformed?.(),
+            onUplinkLevel: (level) => store.getState().setUplinkRms(level),
+          },
+        );
       } catch (cause) {
         store.getState().setConnectionState('error', (cause as Error).message);
         throw cause;
@@ -449,8 +454,8 @@ export function useSessionController(): Controller {
       return; // connect() already published the error state
     }
 
-    // 连接建立后启动音频采集与播放
-    if (provider.requiresSession) {
+    // 连接建立后启动音频采集与播放（若提供者未自管理原生音频轨道）
+    if (provider.requiresSession && !provider.managesAudio) {
       await startAudio().catch((cause: Error) => {
         store.getState().setError(cause.message);
       });

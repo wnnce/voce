@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useWorkflowStore } from '@/store/useAppStore';
 import { useSessionStore } from '@/store/useSessionStore';
 import { useDevices } from '@/pages/Chat/hooks/useDevices';
-import { listConnections } from '@/realtime';
+import { sessionApi, type WebRTCProviderInfo } from '@/realtime/session';
 import { isSecureAudioContext } from '@/audio/secure-context';
 import type { ConnectionKind } from '@/types/session';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
   SelectContent,
@@ -35,6 +36,19 @@ export function SessionConfigPanel({ busy }: SessionConfigPanelProps) {
   }, [workflows.length, fetchWorkflows]);
 
   const [propertiesTouched, setPropertiesTouched] = useState(false);
+  const [webrtcProviders, setWebrtcProviders] = useState<WebRTCProviderInfo[]>([]);
+
+  useEffect(() => {
+    sessionApi
+      .getWebRTCProviders()
+      .then((res) => {
+        setWebrtcProviders(res.providers || []);
+        if (!config.webrtcProvider && res.default) {
+          setConfig({ webrtcProvider: res.default });
+        }
+      })
+      .catch(() => {});
+  }, [config.webrtcProvider, setConfig]);
 
   const propertiesError = useMemo(() => {
     try {
@@ -48,8 +62,71 @@ export function SessionConfigPanel({ busy }: SessionConfigPanelProps) {
     }
   }, [config.propertiesText]);
 
-  const connections = useMemo(() => listConnections(), []);
-  const activeProvider = connections.find((c) => c.kind === config.transport);
+  // 方案 A：扁平化可用通道选项列表
+  const channelOptions = useMemo(() => {
+    const list: Array<{
+      key: string;
+      label: string;
+      description: string;
+      transport: ConnectionKind;
+      provider?: string;
+    }> = [
+      {
+        key: 'websocket',
+        label: 'WebSocket',
+        description: '标准全双工 WebSocket 连接（二进制帧封装）',
+        transport: 'websocket',
+      },
+    ];
+
+    if (webrtcProviders.length <= 1) {
+      list.push({
+        key: 'webrtc',
+        label: 'WebRTC',
+        description: webrtcProviders[0]?.description || '标准 WebRTC 传输网络',
+        transport: 'webrtc',
+        provider: webrtcProviders[0]?.name,
+      });
+    } else {
+      webrtcProviders.forEach((p) => {
+        let shortLabel = p.label;
+        if (p.name === 'wtn') shortLabel = 'WTN';
+        else if (p.name === 'cloudflare') shortLabel = 'Cloudflare';
+        list.push({
+          key: `webrtc:${p.name}`,
+          label: shortLabel,
+          description: `${p.label} - ${p.description}`,
+          transport: 'webrtc',
+          provider: p.name,
+        });
+      });
+    }
+    return list;
+  }, [webrtcProviders]);
+
+  const currentChannelKey = useMemo(() => {
+    if (config.transport === 'websocket') return 'websocket';
+    if (webrtcProviders.length > 1) {
+      const activeProvider = config.webrtcProvider || webrtcProviders[0]?.name;
+      return `webrtc:${activeProvider}`;
+    }
+    return 'webrtc';
+  }, [config.transport, config.webrtcProvider, webrtcProviders]);
+
+  const activeChannel = useMemo(
+    () => channelOptions.find((o) => o.key === currentChannelKey) || channelOptions[0],
+    [channelOptions, currentChannelKey],
+  );
+
+  const handleChannelChange = (val: string) => {
+    const opt = channelOptions.find((o) => o.key === val);
+    if (!opt) return;
+    setConfig({
+      transport: opt.transport,
+      ...(opt.provider ? { webrtcProvider: opt.provider } : {}),
+    });
+  };
+
   const locked = busy;
 
   return (
@@ -127,25 +204,28 @@ export function SessionConfigPanel({ busy }: SessionConfigPanelProps) {
         {/* Transport Provider */}
         <div>
           <label className="font-medium text-foreground mb-1 block">连接实现</label>
-          <Select
-            value={config.transport}
-            disabled={locked}
-            onValueChange={(val) => setConfig({ transport: val as ConnectionKind })}
+          <Tabs
+            value={currentChannelKey}
+            onValueChange={handleChannelChange}
+            className="w-full"
           >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {connections.map((c) => (
-                <SelectItem key={c.kind} value={c.kind}>
+            <TabsList className="w-full flex h-8 p-1 bg-sunken border border-border/60 rounded-lg">
+              {channelOptions.map((c) => (
+                <TabsTrigger
+                  key={c.key}
+                  value={c.key}
+                  disabled={locked}
+                  title={c.description}
+                  className="flex-1 text-xs py-1 h-6 font-medium data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs"
+                >
                   {c.label}
-                </SelectItem>
+                </TabsTrigger>
               ))}
-            </SelectContent>
-          </Select>
-          {activeProvider?.description && (
-            <div className="text-[10px] text-muted-foreground mt-1 leading-normal">
-              {activeProvider.description}
+            </TabsList>
+          </Tabs>
+          {activeChannel?.description && (
+            <div className="text-[10px] text-muted-foreground mt-1.5 leading-normal">
+              {activeChannel.description}
             </div>
           )}
         </div>

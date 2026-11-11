@@ -17,6 +17,14 @@ export type { ConnectionKind };
 export interface ConnectionTarget {
   /** 会话 ID，附加到后端 Session 时必填 */
   sessionId?: string;
+  /** 可选输入音频设备 ID */
+  inputDeviceId?: string;
+  /** 可选输出音频设备 ID */
+  outputDeviceId?: string;
+  /** 是否启用麦克风采集（默认 true） */
+  captureEnabled?: boolean;
+  /** 可选指定的 WebRTC provider 名称，如 'wtn', 'cloudflare' */
+  webrtcProvider?: string;
 }
 
 export interface ConnectionHandlers {
@@ -26,6 +34,8 @@ export interface ConnectionHandlers {
   onState: (state: ConnectionState, detail?: string) => void;
   /** 格式错误帧回调。连接仍然保持，通知上层记录或提示 */
   onMalformed?: () => void;
+  /** 可选麦克风输入音量回调 (0.0 ~ 1.0) */
+  onUplinkLevel?: (level: number) => void;
 }
 
 export interface RealtimeConnection {
@@ -48,6 +58,8 @@ export interface ConnectionProvider {
   readonly description: string;
   /** 是否需要服务端先通过 REST 创建 Session 才能连接 */
   readonly requiresSession: boolean;
+  /** 是否自管理原生音频轨道（采集与播放），为 true 时上层控制器跳过独立 AudioWorklet 管道 */
+  readonly managesAudio?: boolean;
   /** 创建连接实例工厂方法 */
   create: () => RealtimeConnection;
 }

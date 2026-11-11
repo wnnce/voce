@@ -11,7 +11,7 @@ export type ConnectionState =
   | 'error';
 
 /** Registered transport ids. Adding one means registering a provider. */
-export type ConnectionKind = 'websocket';
+export type ConnectionKind = 'websocket' | 'webrtc';
 
 export type ChatRole = 'user' | 'assistant';
 
@@ -42,6 +42,8 @@ export interface SessionConfig {
   inputDeviceId: string;
   outputDeviceId: string;
   transport: ConnectionKind;
+  /** 可选指定的 WebRTC provider 名称，如 'wtn', 'cloudflare' */
+  webrtcProvider?: string;
   /** Turn the microphone off to verify the downlink path on its own. */
   captureEnabled: boolean;
 }

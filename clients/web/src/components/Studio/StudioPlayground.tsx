@@ -14,6 +14,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
   SelectContent,
@@ -28,7 +29,8 @@ import { useSessionController } from '@/pages/Chat/hooks/useSessionController';
 import { useDevices } from '@/pages/Chat/hooks/useDevices';
 import { useThemeControl } from '@/hooks/useThemeControl';
 import { useSessionStore } from '@/store/useSessionStore';
-import type { ConnectionState } from '@/types/session';
+import { sessionApi, type WebRTCProviderInfo } from '@/realtime/session';
+import type { ConnectionKind, ConnectionState } from '@/types/session';
 import type { WorkflowConfig } from '@/types/workflow';
 import { cn } from '@/lib/utils';
 
@@ -68,6 +70,79 @@ export const StudioPlayground: React.FC<StudioPlaygroundProps> = ({
 
   const [showSettings, setShowSettings] = useState(false);
   const [showOverrides, setShowOverrides] = useState(false);
+  const [webrtcProviders, setWebrtcProviders] = useState<WebRTCProviderInfo[]>([]);
+
+  useEffect(() => {
+    sessionApi
+      .getWebRTCProviders()
+      .then((res) => {
+        setWebrtcProviders(res.providers || []);
+        if (!config.webrtcProvider && res.default) {
+          setConfig({ webrtcProvider: res.default });
+        }
+      })
+      .catch(() => {});
+  }, [config.webrtcProvider, setConfig]);
+
+  // 方案 A：扁平化可用通道选项列表（WebSocket + 各 WebRTC 厂商）
+  const channelOptions = useMemo(() => {
+    const list: Array<{
+      key: string;
+      label: string;
+      description: string;
+      transport: ConnectionKind;
+      provider?: string;
+    }> = [
+      {
+        key: 'websocket',
+        label: 'WebSocket',
+        description: '标准全双工 WebSocket 连接（二进制帧封装）',
+        transport: 'websocket',
+      },
+    ];
+
+    if (webrtcProviders.length <= 1) {
+      list.push({
+        key: 'webrtc',
+        label: 'WebRTC',
+        description: webrtcProviders[0]?.description || '标准 WebRTC 传输网络',
+        transport: 'webrtc',
+        provider: webrtcProviders[0]?.name,
+      });
+    } else {
+      webrtcProviders.forEach((p) => {
+        let shortLabel = p.label;
+        if (p.name === 'wtn') shortLabel = 'WTN';
+        else if (p.name === 'cloudflare') shortLabel = 'Cloudflare';
+        list.push({
+          key: `webrtc:${p.name}`,
+          label: shortLabel,
+          description: `${p.label} - ${p.description}`,
+          transport: 'webrtc',
+          provider: p.name,
+        });
+      });
+    }
+    return list;
+  }, [webrtcProviders]);
+
+  const currentChannelKey = useMemo(() => {
+    if (config.transport === 'websocket') return 'websocket';
+    if (webrtcProviders.length > 1) {
+      const activeProvider = config.webrtcProvider || webrtcProviders[0]?.name;
+      return `webrtc:${activeProvider}`;
+    }
+    return 'webrtc';
+  }, [config.transport, config.webrtcProvider, webrtcProviders]);
+
+  const handleChannelChange = (val: string) => {
+    const opt = channelOptions.find((o) => o.key === val);
+    if (!opt) return;
+    setConfig({
+      transport: opt.transport,
+      ...(opt.provider ? { webrtcProvider: opt.provider } : {}),
+    });
+  };
 
   // Automatically keep session workflowId synchronized with active workflow
   useEffect(() => {
@@ -290,6 +365,27 @@ export const StudioPlayground: React.FC<StudioPlaygroundProps> = ({
             </span>
           )}
         </div>
+
+        {/* Flat Protocol / Channel Selector Tabs */}
+        <Tabs
+          value={currentChannelKey}
+          onValueChange={handleChannelChange}
+          className="w-full"
+        >
+          <TabsList className="w-full flex h-7 p-0.5 bg-sunken/80 border border-border/60 rounded-md">
+            {channelOptions.map((c) => (
+              <TabsTrigger
+                key={c.key}
+                value={c.key}
+                disabled={busy}
+                title={c.description}
+                className="flex-1 text-[11px] py-1 h-6 font-medium data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs"
+              >
+                {c.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
         {/* Live RMS Meter */}
         <div className="flex flex-col gap-1 pt-1">
