@@ -117,6 +117,101 @@ Voce 支持 **WebSocket** 与 **gRPC** 两种流式连接。
 
 详见 [Agora RTC 接入设计](../designs/03-agora-rtc/design.md)。
 
+### 3.4 WebRTC 接入
+
+单机模式可通过 WebRTC 端点为已创建的 Session 建立低延迟媒体连接。WebRTC 媒体与 DataChannel 传输层由 Pion 统一管理，信令层通过可插拔的 `Provider` 抽象支持多服务商（如火山引擎 WTN 与 Cloudflare Calls）的动态注册与按需路由。
+
+详见 [WebRTC 接入设计](../designs/06-webrtc-transport/design.md)。
+
+#### 3.4.1 查询可用 Provider 列表
+
+客户端可调用此端点发现当前服务已启用的 WebRTC 提供商与默认提供商：
+
+```http
+GET /webrtc/providers
+```
+
+响应示例：
+
+```json
+{
+  "code": 200,
+  "message": "ok",
+  "data": {
+    "default": "wtn",
+    "providers": [
+      {
+        "name": "wtn",
+        "label": "Volcengine WTN",
+        "description": "火山引擎 WebRTC 传输网络"
+      },
+      {
+        "name": "cloudflare",
+        "label": "Cloudflare Calls",
+        "description": "Cloudflare 全球 Anycast 边缘 WebRTC"
+      }
+    ]
+  }
+}
+```
+
+#### 3.4.2 建立媒体连接 (Attach)
+
+向会话附加 WebRTC 媒体链路，支持以下方式指定所用的提供商（优先级从高到低）：
+1. URL 路径参数：`POST /webrtc/{session_id}/{provider}`（如 `/webrtc/sess-123/cloudflare`）
+2. URL 查询参数：`POST /webrtc/{session_id}?provider=cloudflare`
+3. JSON 请求体：`POST /webrtc/{session_id}`，Body 为 `{"provider": "cloudflare"}`
+4. 缺省回退：使用配置项 `webrtc.default` 指定的默认 Provider。
+
+请求格式：
+```http
+POST /webrtc/{session_id}
+POST /webrtc/{session_id}/{provider}
+Content-Type: application/json
+
+{
+  "provider": "wtn"
+}
+```
+
+响应示例（WTN）：
+```json
+{
+  "code": 200,
+  "message": "ok",
+  "data": {
+    "app_id": "66a8...",
+    "token": "eyJh...",
+    "pub_stream_id": "voce-sess-pub",
+    "sub_stream_id": "voce-sess-sub",
+    "stuns": ["stun:stun.volcengine.com:3478"]
+  }
+}
+```
+
+响应示例（Cloudflare Calls）：
+```json
+{
+  "code": 200,
+  "message": "ok",
+  "data": {
+    "provider": "cloudflare",
+    "app_id": "d82f...",
+    "session_id": "cf-session-456",
+    "track_name": "agent-audio",
+    "stuns": ["stun:stun.cloudflare.com:3478"]
+  }
+}
+```
+
+#### 3.4.3 媒体与传输约定
+
+- **音频格式**：Opus RTP，RTP clock rate 为 48000，SDP 明确声明单声道播放和 16000Hz 最大播放采样率；Voce 内部音频仍为 16000Hz、单声道、PCM16。
+- **双向音轨**：服务端向远端发布机器人下行音频 Track，并订阅远端客户端上行音频 Track。
+- **控制通道**：文本、字幕、控制和生命周期 Packet 通过名为 `voce` 的 DataChannel 传输。
+- **重连与状态**：PeerConnection 短暂断开时 Workflow 进入 Paused；超过断线宽限期或进入 Failed/Closed 后释放旧绑定，客户端需重新 Attach。
+- **部署模式**：WebRTC 端点只在 standalone 模式注册，Gateway 不代理该端点。
+
 ---
 
 ## 4. 边界处理与独占机制 (Boundaries & Errors)

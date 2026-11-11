@@ -11,5 +11,6 @@
 | 03 | [Agora RTC 接入设计](03-agora-rtc/design.md) | 已实现（仅 standalone） |
 | 04 | [Web 对话页设计与实现计划](04-web-conversation/design.md) | 已实现并集成至 Studio (Voice Playground) |
 | 05 | [Web UI 重构设计 (Tailwind v4 + shadcn/ui + SCSS Tokens)](05-web-ui-refactor/design.md) | 已全量实施完成 (Studio 架构就绪) |
+| 06 | [WebRTC 接入设计](06-webrtc-transport/design.md) | 已实现（仅 standalone） |
 
 写作规范见 [`.agents/skills/write-design-doc`](../../.agents/skills/write-design-doc/SKILL.md)。返回[文档首页](../README.md)。
