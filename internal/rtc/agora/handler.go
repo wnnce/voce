@@ -3,6 +3,7 @@ package agora
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -53,6 +54,10 @@ func (h *Handler) Attach(w http.ResponseWriter, request *http.Request) error {
 
 	credentials, err := h.rtc.Attach(request.Context(), session)
 	if err != nil {
+		slog.ErrorContext(request.Context(), "agora session attach failed",
+			"session_id", sessionID,
+			"error", err,
+		)
 		return attachError(err)
 	}
 	return httpx.JSON(w, http.StatusOK, result.SuccessData(attachResponse{
@@ -70,18 +75,22 @@ func (h *Handler) Attach(w http.ResponseWriter, request *http.Request) error {
 func attachError(err error) error {
 	switch {
 	case errors.Is(err, ErrServiceClosed):
-		return errcode.New(http.StatusServiceUnavailable, http.StatusServiceUnavailable, err.Error())
+		return errcode.New(http.StatusServiceUnavailable, http.StatusServiceUnavailable, "Agora service is closed")
 	case errors.Is(err, ErrEngineInit):
-		return errcode.New(http.StatusServiceUnavailable, http.StatusServiceUnavailable, err.Error())
+		return errcode.New(http.StatusServiceUnavailable, http.StatusServiceUnavailable, "Agora engine initialization failed")
 	case errors.Is(err, ErrChannelOpen):
-		return errcode.New(http.StatusBadGateway, http.StatusBadGateway, err.Error())
-	case errors.Is(err, ErrBusy), errors.Is(err, ErrStaleSession):
-		return errcode.New(http.StatusConflict, http.StatusConflict, err.Error())
-	case errors.Is(err, ErrInvalidSession), errors.Is(err, ErrInvalidConfig):
-		return errcode.New(http.StatusBadRequest, http.StatusBadRequest, err.Error())
+		return errcode.New(http.StatusBadGateway, http.StatusBadGateway, "Agora channel cannot be opened")
+	case errors.Is(err, ErrBusy):
+		return errcode.New(http.StatusConflict, http.StatusConflict, "Session is busy")
+	case errors.Is(err, ErrStaleSession):
+		return errcode.New(http.StatusConflict, http.StatusConflict, "Session was replaced")
+	case errors.Is(err, ErrInvalidSession):
+		return errcode.New(http.StatusBadRequest, http.StatusBadRequest, "Invalid session")
+	case errors.Is(err, ErrInvalidConfig):
+		return errcode.New(http.StatusBadRequest, http.StatusBadRequest, "Invalid Agora configuration")
 	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return errcode.New(http.StatusNotFound, http.StatusNotFound, err.Error())
+		return errcode.New(http.StatusNotFound, http.StatusNotFound, "Agora session canceled")
 	default:
-		return errcode.New(http.StatusInternalServerError, http.StatusInternalServerError, err.Error())
+		return errcode.New(http.StatusInternalServerError, http.StatusInternalServerError, "Internal server error")
 	}
 }

@@ -34,3 +34,29 @@ logging:
 	assert.Equal(t, 8080, cfg.Server.Port)
 	assert.Equal(t, "debug", cfg.Logging.Level)
 }
+
+func TestLoadYAML_WebRTCDefault(t *testing.T) {
+	content := `
+webrtc:
+  default: "cloudflare"
+  wtn:
+    app_id: "wtn-app"
+  cloudflare:
+    app_id: "cf-app"
+`
+	tmpfile, err := os.CreateTemp("", "config-webrtc-*.yaml")
+	require.NoError(t, err)
+	defer os.Remove(tmpfile.Name())
+
+	_, err = tmpfile.Write([]byte(content))
+	require.NoError(t, err)
+	_ = tmpfile.Close()
+
+	var cfg VoceBootstrap
+	err = LoadYAML(tmpfile.Name(), &cfg)
+	require.NoError(t, err)
+
+	assert.Equal(t, "cloudflare", cfg.WebRTC.Default)
+	assert.Equal(t, "wtn-app", cfg.WebRTC.WTN.AppID)
+	assert.Equal(t, "cf-app", cfg.WebRTC.Cloudflare.AppID)
+}

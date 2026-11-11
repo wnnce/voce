@@ -71,9 +71,9 @@ install_macos() {
     exit 1
   fi
 
-  log_info "Installing dependencies via Homebrew (pkg-config, ffmpeg, curl, unzip, git)..."
+  log_info "Installing dependencies via Homebrew (pkg-config, ffmpeg, opus, opusfile, curl, unzip, git)..."
   brew update
-  brew install pkg-config ffmpeg curl unzip git
+  brew install pkg-config ffmpeg opus opusfile curl unzip git
   log_info "macOS system dependencies installed successfully."
 }
 
@@ -91,7 +91,7 @@ install_debian_ubuntu() {
   log_info "Updating package lists..."
   $SUDO apt-get update -y
 
-  log_info "Installing system packages (build-essential, FFmpeg dev libs, libc++, pkg-config, curl, unzip, git)..."
+  log_info "Installing system packages (build-essential, FFmpeg dev libs, libopus-dev, libopusfile-dev, libc++, pkg-config, curl, unzip, git)..."
   $SUDO apt-get install -y \
     build-essential \
     pkg-config \
@@ -99,6 +99,8 @@ install_debian_ubuntu() {
     libavcodec-dev \
     libswresample-dev \
     libavutil-dev \
+    libopus-dev \
+    libopusfile-dev \
     libc++-dev \
     libc++abi-dev \
     curl \
@@ -118,11 +120,13 @@ install_arch() {
   local SUDO
   SUDO="$(get_sudo)"
 
-  log_info "Installing packages via pacman (base-devel, pkgconf, ffmpeg, libc++, curl, unzip, git)..."
+  log_info "Installing packages via pacman (base-devel, pkgconf, ffmpeg, opus, opusfile, libc++, curl, unzip, git)..."
   $SUDO pacman -Sy --noconfirm --needed \
     base-devel \
     pkgconf \
     ffmpeg \
+    opus \
+    opusfile \
     libc++ \
     curl \
     unzip \

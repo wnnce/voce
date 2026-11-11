@@ -12,14 +12,16 @@ import (
 )
 
 type AppContainer struct {
-	Workflow *handler.WorkflowHandler
-	Session  *handler.SessionHandler
-	Plugin   *handler.PluginHandler
-	Metrics  http.Handler
-	Machine  *handler.MachineHandler
-	Realtime *realtime.Handler
-	Agora    httpx.WrapHandlerFunc
-	Grpc     pb.VoceServiceServer
+	Workflow        *handler.WorkflowHandler
+	Session         *handler.SessionHandler
+	Plugin          *handler.PluginHandler
+	Metrics         http.Handler
+	Machine         *handler.MachineHandler
+	Realtime        *realtime.Handler
+	Agora           httpx.WrapHandlerFunc
+	WebRTC          httpx.WrapHandlerFunc
+	WebRTCProviders httpx.WrapHandlerFunc
+	Grpc            pb.VoceServiceServer
 }
 
 func RegisterVoceRouter(router chi.Router, container AppContainer) {
@@ -51,6 +53,13 @@ func RegisterVoceRouter(router chi.Router, container AppContainer) {
 	// Agora attach is standalone-only: the gateway never builds this handler.
 	if container.Agora != nil {
 		router.Post("/agora/{id}", httpx.Wrap(container.Agora))
+	}
+	if container.WebRTC != nil {
+		if container.WebRTCProviders != nil {
+			router.Get("/webrtc/providers", httpx.Wrap(container.WebRTCProviders))
+		}
+		router.Post("/webrtc/{id}", httpx.Wrap(container.WebRTC))
+		router.Post("/webrtc/{id}/{provider}", httpx.Wrap(container.WebRTC))
 	}
 
 	if container.Machine != nil {

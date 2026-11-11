@@ -14,6 +14,22 @@ agora:
   app_id: ''
   certificate: ''
 
+# Optional WebRTC transport. The endpoint is registered only when provider is configured.
+webrtc:
+  default: '' # default provider: "wtn" or "cloudflare"
+  wtn:
+    app_id: ''
+    app_key: ''
+    base_url: 'https://wtn.volcvideo.com'
+    stuns: []
+    token_expire: 24h
+    stream_prefix: voce-
+  cloudflare:
+    app_id: ''
+    app_secret: ''
+    base_url: 'https://rtc.live.cloudflare.com/v1/apps'
+    stuns: []
+
 logging:
   console: true
   level: INFO
