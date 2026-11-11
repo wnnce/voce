@@ -11,35 +11,6 @@ import (
 	"github.com/wnnce/voce/pkg/retry"
 )
 
-// UserTranscription is the standard output format for all ASR providers.
-type UserTranscription struct {
-	Text         string `json:"text"`              // The transcribed text
-	Final        bool   `json:"final"`             // Whether this is the final result for this utterance
-	Emotion      string `json:"emotion,omitempty"` // Optional emotion tag
-	LanguageCode string `json:"language_code,omitempty"`
-	Stable       bool   `json:"stable,omitempty"` // Whether the result is stable (usually for streaming)
-}
-
-func (u *UserTranscription) UnpackSchema(data schema.ReadOnly) error {
-	u.Text = schema.GetAs(data, "text", "")
-	u.Final = schema.GetAs(data, "is_final", false)
-	u.Emotion = schema.GetAs(data, "emotion", "")
-	return nil
-}
-
-func (u *UserTranscription) PackSchema(props schema.Properties) error {
-	if err := props.Set("text", u.Text); err != nil {
-		return err
-	}
-	if err := props.Set("is_final", u.Final); err != nil {
-		return err
-	}
-	if err := props.Set("emotion", u.Emotion); err != nil {
-		return err
-	}
-	return nil
-}
-
 // Provider defines the interface for specific ASR engine implementations.
 type Provider interface {
 	// Start begins the transcription session.
@@ -118,7 +89,7 @@ func (e *BasePlugin) OnAudio(ctx context.Context, flow engine.Flow, audio schema
 
 // HandleTranscription is a callback for providers to send results back into the workflow.
 // It wraps the raw transcription in a standard schema.MutablePayload object.
-func (e *BasePlugin) HandleTranscription(t *UserTranscription) {
+func (e *BasePlugin) HandleTranscription(t *schema.Transcription) {
 	if t == nil || (t.Text == "" && !t.Final) {
 		return
 	}

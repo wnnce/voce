@@ -10,6 +10,7 @@ import (
 type Plugin struct {
 	engine.BuiltinPlugin
 	speaking bool
+	turnId   uint64
 }
 
 func NewPlugin(_ engine.EmptyPluginConfig) engine.Plugin {
@@ -18,15 +19,29 @@ func NewPlugin(_ engine.EmptyPluginConfig) engine.Plugin {
 
 func (e *Plugin) OnPayload(_ context.Context, flow engine.Flow, data schema.Payload) {
 	isFinal := schema.GetAs(data, "is_final", false)
-	if !isFinal && !e.speaking {
+	if !e.speaking {
 		e.speaking = true
-		flow.SendSignal(schema.NewSignal(schema.SignalInterrupter).ReadOnly())
-		flow.SendSignal(schema.NewSignal(schema.SignalUserSpeechStart).ReadOnly())
-	} else if isFinal {
-		e.speaking = false
-		flow.SendSignal(schema.NewSignal(schema.SignalUserSpeechEnd).ReadOnly())
+		e.turnId += 1
+
+		interrupter := schema.NewSignal(schema.SignalInterrupter)
+		_ = interrupter.Set("turn_id", e.turnId)
+		flow.SendSignal(interrupter.ReadOnly())
+
+		started := schema.NewSignal(schema.SignalUserSpeechStart)
+		_ = started.Set("turn_id", e.turnId)
+		flow.SendSignal(started.ReadOnly())
 	}
-	flow.SendPayload(data)
+
+	if isFinal {
+		e.speaking = false
+		ended := schema.NewSignal(schema.SignalUserSpeechEnd)
+		_ = ended.Set("turn_id", e.turnId)
+		flow.SendSignal(ended.ReadOnly())
+	}
+
+	transcription := data.Mutable()
+	_ = transcription.Set("turn_id", e.turnId)
+	flow.SendPayload(transcription.ReadOnly())
 }
 
 func init() {
@@ -44,6 +59,7 @@ func init() {
 			AddPayload(schema.PayloadASRResult, "is_final", engine.TypeBoolean, true).
 			AddPayload(schema.PayloadASRResult, "text", engine.TypeString, true).
 			AddPayload(schema.PayloadASRResult, "emotion", engine.TypeString, false).
+			AddPayload(schema.PayloadASRResult, "turn_id", engine.TypeInteger, false).
 			Build(),
 	}); err != nil {
 		panic(err)
