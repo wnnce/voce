@@ -20,7 +20,9 @@ use crate::monitor::MONITOR_DATA;
 
 pub struct Subtitle {
     pub role: String,
+    pub speaker: Option<String>,
     pub text: String,
+    pub translation: Option<String>,
     pub is_final: bool,
     pub cached_lines: Vec<Line<'static>>,
 }
@@ -233,23 +235,42 @@ impl Chat {
     }
 
     fn process_protocol_message(&mut self, p: &Packet) {
+        if p.p_type == PacketType::Interrupter {
+            // Finalize any active interim subtitles upon interruption
+            for sub in self.subtitles.iter_mut() {
+                if !sub.is_final {
+                    sub.is_final = true;
+                }
+            }
+            return;
+        }
         if p.p_type != PacketType::Caption && p.p_type != PacketType::Text { return; }
         let bytes = &p.payload;
         let sub: serde_json::Value = match serde_json::from_slice(bytes) { Ok(v) => v, Err(_) => return };
         let role = sub["role"].as_str().unwrap_or("assistant").to_string();
         let text = sub["text"].as_str().unwrap_or("").to_string();
         let is_final = sub["is_final"].as_bool().unwrap_or(true);
-        self.push_subtitle(role, text, is_final);
+        let speaker = sub["speaker"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string());
+        let translation = sub["translation"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string());
+        self.push_subtitle(role, speaker, text, translation, is_final);
     }
 
-    fn push_subtitle(&mut self, role: String, text: String, is_final: bool) {
+    fn push_subtitle(
+        &mut self,
+        role: String,
+        speaker: Option<String>,
+        text: String,
+        translation: Option<String>,
+        is_final: bool,
+    ) {
         // 0. Normalize text to avoid common markdown parsing glitches (like \r\n or trailing whitespace)
         let normalized_text = text.replace('\r', "").trim_end().to_string();
-        if normalized_text.is_empty() && !is_final {
+        let normalized_trans = translation.map(|t| t.replace('\r', "").trim_end().to_string()).filter(|t| !t.is_empty());
+        if normalized_text.is_empty() && normalized_trans.is_none() && !is_final {
             return;
         }
 
-        // 1. Markdown 解析
+        // 1. Markdown 解析 (原文行)
         let rendered = tui_markdown::from_str(&normalized_text);
         let mut cached_lines: Vec<Line<'static>> = rendered.lines.into_iter().map(|line| {
             let spans: Vec<Span<'static>> = line.spans.into_iter().map(|s| {
@@ -260,17 +281,52 @@ impl Chat {
             Line::from(spans)
         }).collect();
 
-        // 2. 注入 Role 前缀 (保留配色)
+        // 2. 注入 Prefix (Role 与可选 Speaker 标签，保留配色)
         if !cached_lines.is_empty() {
             let color = if role == "user" { Color::Green } else { Color::Magenta };
-            let prefix = Span::styled(format!("{}: ", role), Style::default().fg(color).add_modifier(Modifier::BOLD));
+            let prefix_text = if let Some(spk) = &speaker {
+                format!("{role} [{spk}]: ")
+            } else {
+                format!("{role}: ")
+            };
+            let prefix = Span::styled(prefix_text, Style::default().fg(color).add_modifier(Modifier::BOLD));
             cached_lines[0].spans.insert(0, prefix);
+
+            // 若当前草稿未结句，增加微弱流式提示符
+            if !is_final {
+                if let Some(last_line) = cached_lines.last_mut() {
+                    last_line.spans.push(Span::styled(" …", Style::default().fg(Color::DarkGray)));
+                }
+            }
         }
 
-        // 3. 更新或推入
+        // 3. 注入译文行（如果有译文，优雅双语排版）
+        if let Some(trans) = &normalized_trans {
+            let trans_prefix = Span::styled("  ↳ [译] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+            let trans_rendered = tui_markdown::from_str(trans);
+            for (i, line) in trans_rendered.lines.into_iter().enumerate() {
+                let mut spans: Vec<Span<'static>> = line.spans.into_iter().map(|s| {
+                    let mut span = Span::from(s.content.into_owned());
+                    span.style = convert_style(s.style);
+                    if span.style.fg.is_none() {
+                        span.style = span.style.fg(Color::Yellow);
+                    }
+                    span
+                }).collect();
+                if i == 0 {
+                    spans.insert(0, trans_prefix.clone());
+                } else {
+                    spans.insert(0, Span::raw("         "));
+                }
+                cached_lines.push(Line::from(spans));
+            }
+        }
+
+        // 4. 更新或推入 (根据 role + speaker 精确匹配草稿)
         if let Some(last) = self.subtitles.back_mut() {
-            if last.role == role && !last.is_final {
+            if last.role == role && last.speaker == speaker && !last.is_final {
                 last.text = normalized_text;
+                last.translation = normalized_trans;
                 last.is_final = is_final;
                 last.cached_lines = cached_lines;
                 return;
@@ -278,7 +334,14 @@ impl Chat {
         }
         
         if self.subtitles.len() >= 50 { self.subtitles.pop_front(); }
-        self.subtitles.push_back(Subtitle { role, text: normalized_text, is_final, cached_lines });
+        self.subtitles.push_back(Subtitle {
+            role,
+            speaker,
+            text: normalized_text,
+            translation: normalized_trans,
+            is_final,
+            cached_lines,
+        });
     }
 }
 
@@ -528,3 +591,117 @@ fn convert_color(c: ratatui_core::style::Color) -> Color {
 fn convert_modifier(m: ratatui_core::style::Modifier) -> Modifier {
     Modifier::from_bits_truncate(m.bits())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+    use crate::api::ApiClient;
+    use crate::protocol::{Packet, PacketType};
+
+    fn create_test_chat() -> Chat {
+        let (tx, _rx) = mpsc::channel(10);
+        let api_client = Arc::new(ApiClient::new("http://localhost:8080"));
+        Chat::new("test_workflow".to_string(), serde_json::json!({}), api_client, tx)
+    }
+
+    #[test]
+    fn test_legacy_chat_packet_rendering() {
+        let mut chat = create_test_chat();
+        let payload = serde_json::json!({
+            "role": "user",
+            "text": "Hello world",
+            "is_final": true
+        });
+        let pkt = Packet::new(PacketType::Caption, serde_json::to_vec(&payload).unwrap());
+        chat.process_protocol_message(&pkt);
+
+        assert_eq!(chat.subtitles.len(), 1);
+        let sub = &chat.subtitles[0];
+        assert_eq!(sub.role, "user");
+        assert_eq!(sub.speaker, None);
+        assert_eq!(sub.translation, None);
+        assert_eq!(sub.text, "Hello world");
+        assert!(sub.is_final);
+
+        // Verify line 1 prefix is "user: " without speaker tag, and no translation line
+        assert_eq!(sub.cached_lines.len(), 1);
+        let first_span = &sub.cached_lines[0].spans[0];
+        assert_eq!(first_span.content, "user: ");
+    }
+
+    #[test]
+    fn test_bilingual_subtitle_rendering() {
+        let mut chat = create_test_chat();
+        let payload = serde_json::json!({
+            "role": "user",
+            "speaker": "speaker_0",
+            "text": "Hello world",
+            "translation": "你好世界",
+            "is_final": true
+        });
+        let pkt = Packet::new(PacketType::Caption, serde_json::to_vec(&payload).unwrap());
+        chat.process_protocol_message(&pkt);
+
+        assert_eq!(chat.subtitles.len(), 1);
+        let sub = &chat.subtitles[0];
+        assert_eq!(sub.speaker.as_deref(), Some("speaker_0"));
+        assert_eq!(sub.translation.as_deref(), Some("你好世界"));
+
+        // Verify line 1 has prefix "user [speaker_0]: "
+        assert!(sub.cached_lines.len() >= 2);
+        assert_eq!(sub.cached_lines[0].spans[0].content, "user [speaker_0]: ");
+
+        // Verify line 2 has translation prefix "  ↳ [译] "
+        assert_eq!(sub.cached_lines[1].spans[0].content, "  ↳ [译] ");
+    }
+
+    #[test]
+    fn test_streaming_draft_and_interrupter() {
+        let mut chat = create_test_chat();
+
+        // Step 1: Draft arrives
+        let draft = serde_json::json!({
+            "role": "assistant",
+            "text": "Wait a moment",
+            "translation": "等一下",
+            "is_final": false
+        });
+        chat.process_protocol_message(&Packet::new(PacketType::Text, serde_json::to_vec(&draft).unwrap()));
+        assert_eq!(chat.subtitles.len(), 1);
+        assert!(!chat.subtitles[0].is_final);
+
+        // Step 2: Interrupter packet arrives
+        chat.process_protocol_message(&Packet::new(PacketType::Interrupter, vec![]));
+        assert!(chat.subtitles[0].is_final);
+    }
+
+    #[test]
+    fn test_multi_speaker_isolation() {
+        let mut chat = create_test_chat();
+
+        // Speaker 0 draft
+        let s0 = serde_json::json!({
+            "role": "user",
+            "speaker": "speaker_0",
+            "text": "Hello from 0",
+            "is_final": false
+        });
+        chat.process_protocol_message(&Packet::new(PacketType::Caption, serde_json::to_vec(&s0).unwrap()));
+
+        // Speaker 1 draft (different speaker, shouldn't overwrite s0)
+        let s1 = serde_json::json!({
+            "role": "user",
+            "speaker": "speaker_1",
+            "text": "Hello from 1",
+            "is_final": false
+        });
+        chat.process_protocol_message(&Packet::new(PacketType::Caption, serde_json::to_vec(&s1).unwrap()));
+
+        assert_eq!(chat.subtitles.len(), 2);
+        assert_eq!(chat.subtitles[0].speaker.as_deref(), Some("speaker_0"));
+        assert_eq!(chat.subtitles[1].speaker.as_deref(), Some("speaker_1"));
+    }
+}
+
