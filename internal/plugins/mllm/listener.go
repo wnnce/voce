@@ -3,7 +3,6 @@ package mllm
 import (
 	"log/slog"
 
-	"github.com/wnnce/voce/internal/plugins/base/asr"
 	"github.com/wnnce/voce/internal/plugins/base/llm"
 	"github.com/wnnce/voce/internal/schema"
 )
@@ -36,7 +35,7 @@ func (p *Plugin) OnTranscriptDone(_ string) {
 
 func (p *Plugin) OnInputTranscriptionDelta(text string) {
 	payload := schema.NewPayload(schema.PayloadASRResult)
-	_ = payload.Pack(&asr.UserTranscription{
+	_ = payload.Pack(&schema.Transcription{
 		Text:  text,
 		Final: false,
 	})
@@ -45,7 +44,7 @@ func (p *Plugin) OnInputTranscriptionDelta(text string) {
 
 func (p *Plugin) OnInputTranscriptionDone(text string) {
 	payload := schema.NewPayload(schema.PayloadASRResult)
-	_ = payload.Pack(&asr.UserTranscription{
+	_ = payload.Pack(&schema.Transcription{
 		Text:  text,
 		Final: true,
 	})

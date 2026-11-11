@@ -14,12 +14,12 @@ func TestCaption_Framework(t *testing.T) {
 	ext := NewPlugin(engine.EmptyPluginConfig{})
 
 	// 2. Setup Variable to capture results
-	var finalSub Caption
+	var finalSub schema.Caption
 
 	// 3. Harness the extension using VETF
 	tester := engine.NewPluginTester(t, ext)
 	tester.OnPayload(func(port int, payload schema.Payload) {
-		var sub Caption
+		var sub schema.Caption
 		if payload.Name() != schema.PayloadCaption {
 			return
 		}
@@ -49,7 +49,7 @@ func TestCaption_Framework(t *testing.T) {
 	tester.Wait()
 
 	// 8. Assert end state
-	assert.Equal(t, roleAssistant, finalSub.Role)
+	assert.Equal(t, schema.RoleAssistant, finalSub.Role)
 	assert.Equal(t, "Hello world", finalSub.Text)
 	assert.True(t, finalSub.IsFinal)
 
@@ -65,7 +65,7 @@ func TestCaption_ResetOnInterruption(t *testing.T) {
 		if payload.Name() != schema.PayloadCaption {
 			return
 		}
-		var sub Caption
+		var sub schema.Caption
 		err := payload.Bind("caption", &sub)
 		require.NoError(t, err)
 		lastReceived = sub.Text
@@ -96,13 +96,13 @@ func TestCaption_ResetOnInterruption(t *testing.T) {
 
 func TestCaption_BufferAssistantUntilUserFinal(t *testing.T) {
 	ext := NewPlugin(engine.EmptyPluginConfig{})
-	var received []Caption
+	var received []schema.Caption
 	tester := engine.NewPluginTester(t, ext)
 	tester.OnPayload(func(port int, payload schema.Payload) {
 		if payload.Name() != schema.PayloadCaption {
 			return
 		}
-		var sub Caption
+		var sub schema.Caption
 		err := payload.Bind("caption", &sub)
 		require.NoError(t, err)
 		received = append(received, sub)
@@ -126,7 +126,7 @@ func TestCaption_BufferAssistantUntilUserFinal(t *testing.T) {
 	tester.InjectPayload(assistantDelta2.ReadOnly())
 
 	require.Len(t, received, 1)
-	assert.Equal(t, roleUser, received[0].Role)
+	assert.Equal(t, schema.RoleUser, received[0].Role)
 	assert.Equal(t, "今天", received[0].Text)
 	assert.False(t, received[0].IsFinal)
 
@@ -141,9 +141,40 @@ func TestCaption_BufferAssistantUntilUserFinal(t *testing.T) {
 	tester.InjectPayload(assistantDone.ReadOnly())
 
 	require.Len(t, received, 4)
-	assert.Equal(t, Caption{Text: "今天天气怎么样", Role: roleUser, IsFinal: true}, received[1])
-	assert.Equal(t, Caption{Text: "你好，我是", Role: roleAssistant, IsFinal: false}, received[2])
-	assert.Equal(t, Caption{Text: "你好，我是，有什么可以帮你？", Role: roleAssistant, IsFinal: true}, received[3])
+	assert.Equal(t, schema.Caption{Text: "今天天气怎么样", Role: schema.RoleUser, IsFinal: true}, received[1])
+	assert.Equal(t, schema.Caption{Text: "你好，我是", Role: schema.RoleAssistant, IsFinal: false}, received[2])
+	assert.Equal(t, schema.Caption{Text: "你好，我是，有什么可以帮你？", Role: schema.RoleAssistant, IsFinal: true}, received[3])
 
+	tester.Stop()
+}
+
+func TestCaption_SpeakerCarried(t *testing.T) {
+	ext := NewPlugin(engine.EmptyPluginConfig{})
+	var captured schema.Caption
+	tester := engine.NewPluginTester(t, ext)
+	tester.OnPayload(func(port int, payload schema.Payload) {
+		if payload.Name() != schema.PayloadCaption {
+			return
+		}
+		var sub schema.Caption
+		err := payload.Bind("caption", &sub)
+		require.NoError(t, err)
+		captured = sub
+		tester.Done()
+	})
+
+	tester.Start()
+
+	userASR := schema.NewPayload(schema.PayloadASRResult)
+	_ = userASR.Set("text", "Hello from Speaker 1")
+	_ = userASR.Set("is_final", true)
+	_ = userASR.Set("speaker", "speaker_1")
+	tester.InjectPayload(userASR.ReadOnly())
+
+	tester.Wait()
+	assert.Equal(t, "speaker_1", captured.Speaker)
+	assert.Equal(t, "Hello from Speaker 1", captured.Text)
+	assert.Equal(t, schema.RoleUser, captured.Role)
+	assert.True(t, captured.IsFinal)
 	tester.Stop()
 }
