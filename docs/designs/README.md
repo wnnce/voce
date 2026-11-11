@@ -7,5 +7,6 @@
 | 编号 | 主题 | 状态 |
 | --- | --- | --- |
 | 01 | [Remote Plugin 初版设计](01-remote-plugin/design.md) | 已实现（Experimental） |
+| 02 | [实时同传与双语字幕插件设计](02-realtime-translation/design.md) | 拟议设计 |
 
 写作规范见 [`.agents/skills/write-design-doc`](../../.agents/skills/write-design-doc/SKILL.md)。返回[文档首页](../README.md)。
