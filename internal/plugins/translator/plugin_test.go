@@ -117,15 +117,15 @@ func TestTranslation_DraftAndRevise_AndCommit(t *testing.T) {
 
 	require.GreaterOrEqual(t, len(receivedCaptions), 3)
 
-	// Verify interim draft 1
+	// Verify immediate ASR pass-through 1 (zero-latency raw transcript)
 	assert.Equal(t, "Hello", receivedCaptions[0].Text)
-	assert.Equal(t, "Trans: Hello", receivedCaptions[0].Translation)
+	assert.Empty(t, receivedCaptions[0].Translation)
 	assert.False(t, receivedCaptions[0].IsFinal)
 	assert.Equal(t, "speaker_0", receivedCaptions[0].Speaker)
 
-	// Verify interim draft 2 (draft revised)
-	assert.Equal(t, "Hello world", receivedCaptions[1].Text)
-	assert.Equal(t, "Trans: Hello world", receivedCaptions[1].Translation)
+	// Verify debounced interim draft 1 with translation
+	assert.Equal(t, "Hello", receivedCaptions[1].Text)
+	assert.Equal(t, "Trans: Hello", receivedCaptions[1].Translation)
 	assert.False(t, receivedCaptions[1].IsFinal)
 
 	// Verify final commit
@@ -331,10 +331,12 @@ func TestTranslation_MultiSpeaker_Isolation(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	require.Len(t, received, 2)
+	require.GreaterOrEqual(t, len(received), 2)
 	bySpeaker := make(map[string]schema.Caption)
 	for _, c := range received {
-		bySpeaker[c.Speaker] = c
+		if c.IsFinal {
+			bySpeaker[c.Speaker] = c
+		}
 	}
 	assert.Equal(t, "Speaker A talking", bySpeaker["speaker_A"].Text)
 	assert.Equal(t, "Trans: Speaker A talking", bySpeaker["speaker_A"].Translation)
@@ -386,8 +388,10 @@ func TestTranslation_Interruption_BargeIn(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	// Draft should have been canceled by interruption
-	assert.Empty(t, received)
+	// Immediate ASR is emitted, but translation draft should have been canceled by interruption (no translation produced)
+	for _, c := range received {
+		assert.Empty(t, c.Translation, "translation should not be emitted after interruption")
+	}
 }
 
 func TestTranslation_DeepLProvider_Passthrough(t *testing.T) {

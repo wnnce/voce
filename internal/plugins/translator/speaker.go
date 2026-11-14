@@ -155,6 +155,10 @@ func (sc *SpeakerContext) handleFinalASR(
 		return
 	}
 
+	// Immediately emit finalized transcription with draft translation,
+	// keeping isFinal=false so clients display the final text without waiting for MT network latency.
+	sc.emitCaption(flow, turnID, trans.Metadata, finalText, draftRef, false)
+
 	plugin.wg.Add(1)
 	go func(text string, tid uint64, ref string) {
 		defer plugin.wg.Done()
@@ -173,11 +177,18 @@ func (sc *SpeakerContext) handleFinalASR(
 			DraftRef:   ref,
 		}
 
-		_ = provider.TranslateStream(reqCtx, text, opts,
+		var emittedFinal bool
+		err := provider.TranslateStream(reqCtx, text, opts,
 			func(delta string, accumulated string, isDone bool) error {
+				if isDone {
+					emittedFinal = true
+				}
 				sc.emitCaption(flow, tid, trans.Metadata, text, accumulated, isDone)
 				return nil
 			})
+		if err != nil && !emittedFinal {
+			sc.emitCaption(flow, tid, trans.Metadata, text, ref, true)
+		}
 	}(finalText, turnID, draftRef)
 }
 
@@ -201,6 +212,9 @@ func (sc *SpeakerContext) handleInterimASR(
 			sc.lastDraftTranslation = ""
 			sc.mu.Unlock()
 
+			// Immediately emit prefix with draftRef before async translation
+			sc.emitCaption(flow, turnID, nil, prefix, draftRef, false)
+
 			plugin.wg.Add(1)
 			go func(text string, tid uint64, ref string) {
 				defer plugin.wg.Done()
@@ -218,18 +232,32 @@ func (sc *SpeakerContext) handleInterimASR(
 					DraftRef:   ref,
 				}
 
-				_ = provider.TranslateStream(reqCtx, text, opts,
+				var emittedFinal bool
+				err := provider.TranslateStream(reqCtx, text, opts,
 					func(delta string, accumulated string, isDone bool) error {
+						if isDone {
+							emittedFinal = true
+						}
 						sc.emitCaption(flow, tid, nil, text, accumulated, isDone)
 						return nil
 					})
+				if err != nil && !emittedFinal {
+					sc.emitCaption(flow, tid, nil, text, ref, true)
+				}
 			}(prefix, turnID, draftRef)
 			return
 		}
 	}
 
+	draftText := sc.currentDraft
+	draftRef := sc.lastDraftTranslation
+	turnID := sc.activeTurnID
+
 	sc.scheduleDebouncedDraft(flow, plugin, sourceLang, targetLang)
 	sc.mu.Unlock()
+
+	// Immediately emit interim ASR draft downstream with cached translation
+	sc.emitCaption(flow, turnID, trans.Metadata, draftText, draftRef, false)
 }
 
 func (sc *SpeakerContext) scheduleDebouncedDraft(
