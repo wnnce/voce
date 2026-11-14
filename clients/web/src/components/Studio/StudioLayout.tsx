@@ -77,7 +77,11 @@ export const StudioLayout: React.FC = () => {
       setSelectedWorkflow(wf);
       setCurrentWorkflow(wf);
       if (wf.id) {
-        useSessionStore.getState().setConfig({ workflowId: wf.id });
+        const store = useSessionStore.getState();
+        if (store.config.workflowId && store.config.workflowId !== wf.id) {
+          store.reset();
+        }
+        store.setConfig({ workflowId: wf.id });
       }
       workflowCanvasRef.current?.onSelectWorkflow(wf);
     },

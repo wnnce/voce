@@ -48,6 +48,8 @@ interface SessionState {
 
   openSpan: (role: TimelineSpan['role']) => void;
   closeSpan: (role: TimelineSpan['role']) => void;
+  closeAllSpans: () => void;
+  clearMessages: () => void;
 
   reset: () => void;
 }
@@ -126,6 +128,21 @@ export const useSessionStore = create<SessionState>((set) => ({
     set((s) => ({
       spans: s.spans.map((span) =>
         span.role === role && span.end === undefined ? { ...span, end: Date.now() } : span,
+      ),
+    })),
+
+  closeAllSpans: () =>
+    set((s) => ({
+      spans: s.spans.map((span) =>
+        span.end === undefined ? { ...span, end: Date.now() } : span,
+      ),
+    })),
+
+  clearMessages: () =>
+    set((s) => ({
+      messages: [],
+      spans: s.spans.map((span) =>
+        span.end === undefined ? { ...span, end: Date.now() } : span,
       ),
     })),
 

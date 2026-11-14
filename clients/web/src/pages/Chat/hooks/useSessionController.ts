@@ -234,6 +234,7 @@ export function useSessionController(): Controller {
           captionQueue.current.length = 0;
           playbackRef.current?.clear();
           s.markInterrupted();
+          s.closeSpan('agent');
           return;
         case PacketType.UserSpeechStart:
           s.openSpan('user');
@@ -396,7 +397,8 @@ export function useSessionController(): Controller {
     if (id) {
       await sessionApi.destroy(id).catch(() => undefined);
     }
-  }, [stopAudio, stopKeepalive]);
+    store.getState().closeAllSpans();
+  }, [stopAudio, stopKeepalive, store]);
 
   const start = useCallback(async () => {
     const s = store.getState();
@@ -472,6 +474,7 @@ export function useSessionController(): Controller {
     store.getState().setConnectionState('closing');
     await dispose();
     store.getState().setConnectionState('closed');
+    store.getState().closeAllSpans();
   }, [dispose, store]);
 
   // Re-entering the tab restores throttled timers; refresh the lease at once.

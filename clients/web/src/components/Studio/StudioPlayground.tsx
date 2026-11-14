@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
 import {
@@ -144,17 +144,22 @@ export const StudioPlayground: React.FC<StudioPlaygroundProps> = ({
     });
   };
 
+  const prevWorkflowIdRef = useRef<string | undefined>(workflow?.id);
+
   // Automatically keep session workflowId synchronized with active workflow
   useEffect(() => {
     if (!workflow?.id) return;
-    if (config.workflowId !== workflow.id) {
+    if (prevWorkflowIdRef.current && prevWorkflowIdRef.current !== workflow.id) {
       if (busy) {
         void stop();
       }
       useSessionStore.getState().reset();
       useSessionStore.getState().setConfig({ workflowId: workflow.id });
+    } else if (!useSessionStore.getState().config.workflowId) {
+      useSessionStore.getState().setConfig({ workflowId: workflow.id });
     }
-  }, [workflow?.id, config.workflowId, busy, stop]);
+    prevWorkflowIdRef.current = workflow.id;
+  }, [workflow?.id, busy, stop]);
 
   // Validate properties JSON text
   const propertiesError = useMemo(() => {

@@ -44,6 +44,9 @@ export default function ChatPage() {
     if (!workflowParam || state !== 'idle') return;
     const store = useSessionStore.getState();
     if (store.config.workflowId !== workflowParam) {
+      if (store.config.workflowId) {
+        store.reset();
+      }
       store.setConfig({ workflowId: workflowParam });
     }
   }, [workflowParam, state]);

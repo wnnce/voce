@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { MessageBubble } from '@/pages/Chat/components/MessageBubble';
 import { useSessionStore } from '@/store/useSessionStore';
-import { AlertCircle, Mic } from 'lucide-react';
+import { AlertCircle, Mic, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ConversationStreamProps {
@@ -30,7 +30,18 @@ export function ConversationStream({ agentSpeaking, userSpeaking }: Conversation
   };
 
   const empty = messages.length === 0;
-  const speechLabel = userSpeaking ? '正在聆听…' : agentSpeaking ? '助手说话中' : undefined;
+  const isCallActive =
+    state === 'active' ||
+    state === 'connecting' ||
+    state === 'creating' ||
+    state === 'reconnecting';
+  const speechLabel = !isCallActive
+    ? undefined
+    : userSpeaking
+    ? '正在聆听…'
+    : agentSpeaking
+    ? '助手说话中'
+    : undefined;
   const hasInterim = messages.length > 0 && !messages[messages.length - 1].final;
 
   return (
@@ -73,20 +84,33 @@ export function ConversationStream({ agentSpeaking, userSpeaking }: Conversation
       </div>
 
       {/* Speaking status bottom strip */}
-      <div className="px-5 py-1.5 min-h-[28px] border-t border-border/60 bg-card flex items-center gap-2 shrink-0">
-        <span
-          className={cn(
-            'w-1.5 h-1.5 rounded-full transition-colors',
-            agentSpeaking
-              ? 'bg-emerald-500 animate-pulse'
-              : userSpeaking
-              ? 'bg-primary animate-pulse'
-              : 'bg-muted-foreground/40'
-          )}
-        />
-        <span className="text-[11px] text-muted-foreground font-medium">
-          {speechLabel ?? '静默'}
-        </span>
+      <div className="px-5 py-1.5 min-h-[28px] border-t border-border/60 bg-card flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              'w-1.5 h-1.5 rounded-full transition-colors',
+              isCallActive && agentSpeaking
+                ? 'bg-emerald-500 animate-pulse'
+                : isCallActive && userSpeaking
+                ? 'bg-primary animate-pulse'
+                : 'bg-muted-foreground/40'
+            )}
+          />
+          <span className="text-[11px] text-muted-foreground font-medium">
+            {speechLabel ?? '静默'}
+          </span>
+        </div>
+        {messages.length > 0 && (
+          <button
+            type="button"
+            onClick={() => useSessionStore.getState().clearMessages()}
+            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors px-1.5 py-0.5 rounded hover:bg-muted/60"
+            title="清空对话记录"
+          >
+            <Trash2 size={12} />
+            <span>清空记录</span>
+          </button>
+        )}
       </div>
     </section>
   );
