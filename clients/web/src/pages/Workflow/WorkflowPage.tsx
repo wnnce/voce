@@ -8,6 +8,7 @@ import ReactFlow, {
   BackgroundVariant,
   useReactFlow,
   ReactFlowProvider,
+  PanOnScrollMode,
   type Connection,
   type Node,
   type Edge,
@@ -616,6 +617,11 @@ const WorkflowCanvasInner = React.forwardRef<WorkflowPageHandle, WorkflowCanvasP
           fitViewOptions={defaultFitViewOptions}
           minZoom={0.2}
           maxZoom={2}
+          panOnScroll
+          panOnScrollMode={PanOnScrollMode.Free}
+          panOnScrollSpeed={0.8}
+          zoomOnPinch
+          zoomActivationKeyCode={['Meta', 'Control']}
         >
           <Background gap={24} variant={BackgroundVariant.Dots} color="var(--border-subtle)" />
           <Controls position="bottom-right" className="!bg-card !border-border !shadow-sm !rounded-lg" />
