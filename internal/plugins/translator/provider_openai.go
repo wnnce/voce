@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -205,14 +206,30 @@ func (o *OpenAIProvider) TranslateStream(
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "text/event-stream")
 
+	startTime := time.Now()
+	var ttfb time.Duration
+	var hasReceivedToken bool
+
 	resp, err := o.client.Do(httpReq)
 	if err != nil {
+		slog.ErrorContext(ctx, "llm translation request failed",
+			"model", o.model,
+			"elapsed_ms", time.Since(startTime).Milliseconds(),
+			"error", err,
+			"text", text,
+		)
 		return fmt.Errorf("openai: http post error: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		slog.ErrorContext(ctx, "llm translation api error",
+			"model", o.model,
+			"status", resp.StatusCode,
+			"elapsed_ms", time.Since(startTime).Milliseconds(),
+			"body", string(respBytes),
+		)
 		return fmt.Errorf("openai: api error status %d: %s", resp.StatusCode, string(respBytes))
 	}
 
@@ -236,12 +253,26 @@ func (o *OpenAIProvider) TranslateStream(
 			break
 		}
 		if delta != "" {
+			if !hasReceivedToken {
+				ttfb = time.Since(startTime)
+				hasReceivedToken = true
+			}
 			accumulated.WriteString(delta)
 			if err := handler(delta, accumulated.String(), false); err != nil {
 				return err
 			}
 		}
 	}
+
+	totalElapsed := time.Since(startTime)
+	slog.InfoContext(ctx, "llm translation finished",
+		"model", o.model,
+		"ttfb_ms", ttfb.Milliseconds(),
+		"done_ms", totalElapsed.Milliseconds(),
+		"is_final", opts.IsFinal,
+		"text", text,
+		"translation", accumulated.String(),
+	)
 
 	return handler("", accumulated.String(), true)
 }

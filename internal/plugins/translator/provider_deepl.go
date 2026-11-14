@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -130,18 +131,30 @@ func (d *DeepLProvider) TranslateStream(
 	httpReq.Header.Set("Authorization", "DeepL-Auth-Key "+d.apiKey)
 	httpReq.Header.Set("Content-Type", "application/json")
 
+	start := time.Now()
 	resp, err := d.client.Do(httpReq)
 	if err != nil {
+		slog.ErrorContext(ctx, "deepl translation request failed",
+			"network_latency_ms", time.Since(start).Milliseconds(),
+			"error", err,
+			"text", text,
+		)
 		return fmt.Errorf("deepl: http post error: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBytes, err := io.ReadAll(resp.Body)
+	networkLatency := time.Since(start)
 	if err != nil {
 		return fmt.Errorf("deepl: read response body error: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		slog.ErrorContext(ctx, "deepl translation api error",
+			"status", resp.StatusCode,
+			"network_latency_ms", networkLatency.Milliseconds(),
+			"body", string(respBytes),
+		)
 		return fmt.Errorf("deepl: api error status %d: %s", resp.StatusCode, string(respBytes))
 	}
 
@@ -155,6 +168,12 @@ func (d *DeepLProvider) TranslateStream(
 	}
 
 	res := parsed.Translations[0].Text
+	slog.InfoContext(ctx, "deepl translation finished",
+		"network_latency_ms", networkLatency.Milliseconds(),
+		"is_final", opts.IsFinal,
+		"text", text,
+		"translation", res,
+	)
 	return handler(res, res, true)
 }
 
