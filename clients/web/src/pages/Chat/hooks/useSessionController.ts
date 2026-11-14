@@ -93,7 +93,13 @@ export function useSessionController(): Controller {
     const pending = captionQueue.current.splice(0);
     const s = store.getState();
     for (const caption of pending) {
-      s.upsertCaption(caption.role, caption.text, caption.is_final);
+      s.upsertCaption(
+        caption.role,
+        caption.text,
+        caption.is_final,
+        caption.speaker,
+        caption.translation
+      );
     }
   }, [store]);
 

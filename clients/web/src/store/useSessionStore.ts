@@ -37,7 +37,13 @@ interface SessionState {
   setError: (message?: string) => void;
   setUplinkRms: (rms: number) => void;
 
-  upsertCaption: (role: ChatRole, text: string, final: boolean) => void;
+  upsertCaption: (
+    role: ChatRole,
+    text: string,
+    final: boolean,
+    speaker?: string,
+    translation?: string
+  ) => void;
   markInterrupted: () => void;
 
   openSpan: (role: TimelineSpan['role']) => void;
@@ -64,17 +70,33 @@ export const useSessionStore = create<SessionState>((set) => ({
 
   setUplinkRms: (uplinkRms) => set(() => ({ uplinkRms })),
 
-  upsertCaption: (role, text, final) =>
+  upsertCaption: (role, text, final, speaker, translation) =>
     set((s) => {
       const messages = [...s.messages];
       const last = messages[messages.length - 1];
       // Server sends cumulative text, so an open bubble is overwritten rather
       // than appended to. A final caption seals it; the next one starts fresh.
-      if (last && last.role === role && !last.final) {
-        messages[messages.length - 1] = { ...last, text, final };
+      // If speaker is provided, ensure speaker matches to isolate multi-speaker turns.
+      const isSameSpeaker = !speaker || !last?.speaker || last.speaker === speaker;
+      if (last && last.role === role && !last.final && isSameSpeaker) {
+        messages[messages.length - 1] = {
+          ...last,
+          text,
+          final,
+          speaker: speaker || last.speaker,
+          translation: translation !== undefined ? translation : last.translation,
+        };
         return { messages };
       }
-      messages.push({ id: nextId('msg'), role, text, final, at: Date.now() });
+      messages.push({
+        id: nextId('msg'),
+        role,
+        text,
+        final,
+        speaker,
+        translation,
+        at: Date.now(),
+      });
       return { messages };
     }),
 

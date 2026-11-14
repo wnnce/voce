@@ -105,6 +105,8 @@ export interface CaptionPayload {
   text: string;
   role: 'user' | 'assistant';
   is_final: boolean;
+  speaker?: string;
+  translation?: string;
 }
 
 /** Decodes a JSON-encoded payload, returning null on malformed input. */

@@ -20,6 +20,8 @@ export interface ChatMessage {
   role: ChatRole;
   text: string;
   final: boolean;
+  speaker?: string;
+  translation?: string;
   /** Set when the server sent 0x11 while this bubble was still streaming. */
   interrupted?: boolean;
   at: number;
