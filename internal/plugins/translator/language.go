@@ -91,6 +91,21 @@ func ToDeepLSourceLang(lang string) string {
 	return strings.ToUpper(parts[0])
 }
 
+// ToVolcengineLang maps a BCP 47 language code to Volcengine Translate language code requirements.
+func ToVolcengineLang(lang string) string {
+	norm := NormalizeLang(lang)
+	if norm == "" || norm == "auto" {
+		return ""
+	}
+	switch norm {
+	case LangZhTW, "zh-HK", "zh-Hant":
+		return "zh-Hant"
+	default:
+		parts := strings.Split(norm, "-")
+		return strings.ToLower(parts[0])
+	}
+}
+
 // ToOpenAILangDesc maps a BCP 47 language code to an explicit, unambiguous natural language description for LLM prompts.
 func ToOpenAILangDesc(lang string) string {
 	norm := NormalizeLang(lang)

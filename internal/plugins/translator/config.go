@@ -8,7 +8,7 @@ import (
 )
 
 type ProviderConfig struct {
-	Type       string          `json:"type" jsonschema:"title=Provider Type,description=Provider type: deepl, openai, or mock,default=deepl"`
+	Type       string          `json:"type" jsonschema:"title=Provider Type,description=Provider type: deepl, openai, volcengine, or mock,default=deepl"`            //nolint:lll // struct tag exceeds line length
 	Properties json.RawMessage `json:"properties,omitempty" jsonschema:"title=Provider Properties,description=Provider-specific configuration and extra parameters"` //nolint:lll // struct tag exceeds line length
 }
 

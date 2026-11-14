@@ -165,6 +165,7 @@ func parseSSELine(line []byte) (string, bool, error) {
 	return chunk.Choices[0].Delta.Content, false, nil
 }
 
+//nolint:funlen // streaming request setup and SSE reading loop
 func (o *OpenAIProvider) TranslateStream(
 	ctx context.Context,
 	text string,
