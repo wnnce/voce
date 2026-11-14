@@ -5,7 +5,9 @@
  * 保留原始 HTTP 状态码以便区分超时 (404)、冲突占用 (409) 与服务不可用等异常。
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const rawBase = import.meta.env.BASE_URL || '';
+const defaultBase = rawBase.endsWith('/') ? rawBase.slice(0, -1) : rawBase;
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? defaultBase;
 
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
@@ -150,7 +152,10 @@ export const sessionApi = {
  * 将 API Base URL 转换为 WebSocket 协议的 /realtime/{id} 地址。
  */
 export function realtimeURL(sessionId: string): string {
-  const base = cleanBaseUrl || window.location.origin;
+  let base = cleanBaseUrl;
+  if (!base || base.startsWith('/')) {
+    base = `${window.location.origin}${base}`;
+  }
   const wsBase = trimTrailingSlash(base.replace(/^http/, 'ws'));
   return `${wsBase}/realtime/${encodeURIComponent(sessionId)}`;
 }
