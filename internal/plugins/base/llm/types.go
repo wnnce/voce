@@ -5,11 +5,15 @@ import (
 )
 
 type Chunk struct {
+	schema.BaseSchema
 	Sentence string `json:"sentence"`
 	IsFinal  bool   `json:"is_final"`
 }
 
 func (c *Chunk) PackSchema(props schema.Properties) error {
+	if err := c.BaseSchema.PackSchema(props); err != nil {
+		return err
+	}
 	if err := props.Set("sentence", c.Sentence); err != nil {
 		return err
 	}
@@ -20,6 +24,9 @@ func (c *Chunk) PackSchema(props schema.Properties) error {
 }
 
 func (c *Chunk) UnpackSchema(data schema.ReadOnly) error {
+	if err := c.BaseSchema.UnpackSchema(data); err != nil {
+		return err
+	}
 	c.Sentence = schema.GetAs(data, "sentence", "")
 	c.IsFinal = schema.GetAs(data, "is_final", false)
 	return nil

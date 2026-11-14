@@ -10,8 +10,6 @@ GATEWAY_CMD_PATH=./cmd/gateway
 WEB_DIR=clients/web
 TUI_DIR=clients/voce-tui
 LIBS_DIR=libs
-TEN_VAD_DIR=$(LIBS_DIR)/ten-vad
-TEN_VAD_REPO=https://github.com/TEN-framework/ten-vad.git
 
 all: build-all
 
@@ -24,7 +22,8 @@ build: deps generate build-web
 build-gateway: deps build-web
 	@echo "Building gateway $(GATEWAY_NAME)..."
 	@mkdir -p $(BIN_DIR)
-	go build -o $(BIN_DIR)/$(GATEWAY_NAME) $(GATEWAY_CMD_PATH)
+	# The gateway must not pull in any cgo package (agora, ten-vad, audioproc).
+	CGO_ENABLED=0 go build -o $(BIN_DIR)/$(GATEWAY_NAME) $(GATEWAY_CMD_PATH)
 
 # 2. Frontend Build
 build-web:
@@ -39,15 +38,8 @@ build-tui:
 	@cp $(TUI_DIR)/target/release/$(TUI_NAME) $(BIN_DIR)/
 
 # 4. Dependencies
-deps: $(TEN_VAD_DIR)
-
-$(TEN_VAD_DIR):
-	@echo "Checking dependencies in $(LIBS_DIR)..."
-	@mkdir -p $(LIBS_DIR)
-	@if [ ! -d "$(TEN_VAD_DIR)" ]; then \
-		echo "Cloning ten-vad library..."; \
-		git clone $(TEN_VAD_REPO) $(TEN_VAD_DIR); \
-	fi
+deps:
+	@./scripts/prepare-libs.sh
 
 # 5. Build Everything
 build-all: build build-gateway build-tui

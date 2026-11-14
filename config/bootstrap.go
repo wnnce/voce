@@ -48,6 +48,39 @@ type VoceConfig struct {
 	PluginServers []PluginServerConfig `json:"plugin_servers" yaml:"plugin_servers"`
 }
 
+// AgoraConfig holds the App ID and certificate used to sign session credentials.
+type AgoraConfig struct {
+	AppID       string `json:"app_id" yaml:"app_id"`
+	Certificate string `json:"certificate" yaml:"certificate"`
+}
+
+// WebRTCConfig specifies the signaling provider and its parameters.
+type WebRTCConfig struct {
+	Default    string           `json:"default" yaml:"default"`
+	Provider   string           `json:"provider,omitempty" yaml:"provider,omitempty"` // Deprecated: use Default
+	WTN        WTNConfig        `json:"wtn" yaml:"wtn"`
+	Cloudflare CloudflareConfig `json:"cloudflare" yaml:"cloudflare"`
+}
+
+// CloudflareConfig holds the credentials and endpoint used for Cloudflare Calls WebRTC.
+type CloudflareConfig struct {
+	AppID     string        `json:"app_id" yaml:"app_id"`
+	AppSecret string        `json:"app_secret" yaml:"app_secret"`
+	BaseURL   string        `json:"base_url" yaml:"base_url"`
+	STUNs     []string      `json:"stuns" yaml:"stuns"`
+	Timeout   time.Duration `json:"timeout" yaml:"timeout"`
+}
+
+// WTNConfig holds the credentials and endpoint used for Volcengine WTN WebRTC.
+type WTNConfig struct {
+	AppID        string        `json:"app_id" yaml:"app_id"`
+	AppKey       string        `json:"app_key" yaml:"app_key"`
+	BaseURL      string        `json:"base_url" yaml:"base_url"`
+	STUNs        []string      `json:"stuns" yaml:"stuns"`
+	TokenExpire  time.Duration `json:"token_expire" yaml:"token_expire"`
+	StreamPrefix string        `json:"stream_prefix" yaml:"stream_prefix"`
+}
+
 type PluginServerConfig struct {
 	URL       string `json:"url" yaml:"url"`
 	Namespace string `json:"namespace" yaml:"namespace"`
@@ -73,6 +106,8 @@ type GatewayServerConfig struct {
 type VoceBootstrap struct {
 	Logging logging.Config `json:"logging" yaml:"logging"`
 	Redis   RedisConfig    `json:"redis" yaml:"redis"`
+	Agora   AgoraConfig    `json:"agora" yaml:"agora"`
+	WebRTC  WebRTCConfig   `json:"webrtc" yaml:"webrtc"`
 	Server  VoceConfig     `json:"server" yaml:"server"`
 }
 

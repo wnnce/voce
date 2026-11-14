@@ -12,15 +12,9 @@ RUN cd clients/web && pnpm build
 FROM golang:1.27-bookworm AS backend-builder
 
 # Install build tools and system dependencies (FFmpeg, git-lfs)
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    pkg-config \
-    libswresample-dev \
-    libavutil-dev \
-    libc++-dev \
-    libc++abi-dev \
-    git \
-    git-lfs \
+COPY scripts/install-sys-deps.sh ./scripts/
+RUN apt-get update && apt-get install -y git-lfs \
+    && ./scripts/install-sys-deps.sh \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

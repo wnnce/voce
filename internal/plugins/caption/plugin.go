@@ -9,17 +9,6 @@ import (
 	"github.com/wnnce/voce/internal/schema"
 )
 
-const (
-	roleUser      = "user"
-	roleAssistant = "assistant"
-)
-
-type Caption struct {
-	Text    string `json:"text"`
-	Role    string `json:"role"`
-	IsFinal bool   `json:"is_final"`
-}
-
 type Plugin struct {
 	engine.BuiltinPlugin
 	ctx                   context.Context
@@ -57,10 +46,12 @@ func (e *Plugin) OnSignal(ctx context.Context, flow engine.Flow, signal schema.S
 func (e *Plugin) OnPayload(ctx context.Context, flow engine.Flow, payload schema.Payload) {
 	switch payload.Name() {
 	case schema.PayloadASRResult:
-		var sub Caption
+		var sub schema.Caption
+		_ = sub.BaseSchema.UnpackSchema(payload)
 		sub.Text = schema.GetAs(payload, "text", "")
 		sub.IsFinal = schema.GetAs(payload, "is_final", false)
-		sub.Role = roleUser
+		sub.Speaker = schema.GetAs(payload, "speaker", "")
+		sub.Role = schema.RoleUser
 		if !sub.IsFinal {
 			e.waitingUserFinal = true
 			e.sendCaption(ctx, flow, sub)
@@ -82,12 +73,13 @@ func (e *Plugin) OnPayload(ctx context.Context, flow engine.Flow, payload schema
 	}
 }
 
-func (e *Plugin) makeAssistantCaption(payload schema.Payload) Caption {
+func (e *Plugin) makeAssistantCaption(payload schema.Payload) schema.Caption {
 	sentence := schema.GetAs(payload, "sentence", "")
-	sub := Caption{
+	sub := schema.Caption{
 		IsFinal: schema.GetAs(payload, "is_final", false),
-		Role:    roleAssistant,
+		Role:    schema.RoleAssistant,
 	}
+	_ = sub.BaseSchema.UnpackSchema(payload)
 	e.builder.WriteString(sentence)
 	sub.Text = e.builder.String()
 	return sub
@@ -97,9 +89,9 @@ func (e *Plugin) flushPendingAssistantCaption(ctx context.Context, flow engine.F
 	if e.builder.Len() == 0 {
 		return
 	}
-	e.sendCaption(ctx, flow, Caption{
+	e.sendCaption(ctx, flow, schema.Caption{
 		Text:    e.builder.String(),
-		Role:    roleAssistant,
+		Role:    schema.RoleAssistant,
 		IsFinal: e.pendingAssistantFinal,
 	})
 	if e.pendingAssistantFinal {
@@ -108,7 +100,7 @@ func (e *Plugin) flushPendingAssistantCaption(ctx context.Context, flow engine.F
 	e.pendingAssistantFinal = false
 }
 
-func (e *Plugin) sendCaption(ctx context.Context, flow engine.Flow, sub Caption) {
+func (e *Plugin) sendCaption(ctx context.Context, flow engine.Flow, sub schema.Caption) {
 	outputData := schema.NewPayload(schema.PayloadCaption)
 	if err := outputData.Set("caption", sub); err != nil {
 		slog.ErrorContext(ctx, "output payload set caption failed", "error", err)
@@ -123,6 +115,7 @@ func init() {
 		Inputs: engine.NewPropertyBuilder().
 			AddPayload(schema.PayloadASRResult, "text", engine.TypeString, true).
 			AddPayload(schema.PayloadASRResult, "is_final", engine.TypeBoolean, true).
+			AddPayload(schema.PayloadASRResult, "speaker", engine.TypeString, false).
 			AddPayload(schema.PayloadLLMChunk, "sentence", engine.TypeString, true).
 			AddPayload(schema.PayloadLLMChunk, "is_final", engine.TypeBoolean, true).
 			Build(),

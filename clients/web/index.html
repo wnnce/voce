@@ -4,7 +4,26 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>web</title>
+    <title>Voce Studio</title>
+    <script>
+      // Obscura headless DOM compatibility shim
+      if (typeof DocumentFragment !== 'undefined' && DocumentFragment.prototype) {
+        const _origRemoveChild = DocumentFragment.prototype.removeChild;
+        DocumentFragment.prototype.removeChild = function(child) {
+          try {
+            if (child && child.parentNode === this) {
+              return _origRemoveChild.call(this, child);
+            }
+            if (child && child.parentNode) {
+              return child.parentNode.removeChild(child);
+            }
+          } catch (e) {
+            // Silently swallow container removal errors in headless shims
+          }
+          return child;
+        };
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

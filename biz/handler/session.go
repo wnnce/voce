@@ -3,6 +3,8 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -66,7 +68,10 @@ func (h *SessionHandler) CreateWorkflowSession(w http.ResponseWriter, request *h
 		return err
 	}
 	if h.cm != nil {
-		go h.sessionWriteLoop(session)
+		if err := h.attachPoolWriter(session); err != nil {
+			h.sm.RemoveSession(sessionKey)
+			return err
+		}
 	}
 	return httpx.JSON(w, http.StatusOK, result.SuccessData(map[string]any{
 		"session_id": sessionId,
@@ -130,27 +135,32 @@ func (h *SessionHandler) DeleteWorkflowSession(w http.ResponseWriter, request *h
 	return httpx.JSON(w, http.StatusOK, result.Success())
 }
 
-func (h *SessionHandler) sessionWriteLoop(session *engine.Session) {
+// attachPoolWriter routes the session's output through the shared machine
+// connection pool. In gateway mode the pool writer, not a client connection,
+// is the single consumer of the session's workflow output.
+func (h *SessionHandler) attachPoolWriter(session *engine.Session) error {
+	lease, err := session.Bind()
+	if err != nil {
+		return fmt.Errorf("bind session pool writer: %w", err)
+	}
+	if !session.SetWriter(lease, h.withPacketWriter(session.Workflow.Context(), session.Key)) {
+		_ = session.Unbind(lease, false)
+		return errors.New("attach session pool writer: writer rejected")
+	}
+	slog.InfoContext(session.Workflow.Context(), "gateway session pool writer attached", "lease", uint64(lease))
+	return nil
+}
+
+func (h *SessionHandler) withPacketWriter(ctx context.Context, key protocol.SessionKey) engine.PacketWriter {
 	var conn *machine.Connection
-	ctx := session.Workflow.Context()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case packet, ok := <-session.Workflow.Output():
-			if !ok {
-				return
-			}
-			if conn == nil || conn.State() != protocol.ConnectionActive {
-				conn = h.cm.Select(session.Key)
-			}
-			if conn == nil {
-				slog.DebugContext(session.Workflow.Context(), "dropped workflow packet without active connection", "session_id", session.Key.String())
-			} else if err := conn.Write(session.Key, packet); err != nil {
-				slog.Error("failed to write packet to connection", "error", err, "session_id", session.Key.String())
-			}
-			session.UpdateActivity()
-			protocol.ReleasePacket(packet)
+	return func(packet *protocol.Packet) error {
+		if conn == nil || conn.State() != protocol.ConnectionActive {
+			conn = h.cm.Select(key)
 		}
+		if conn == nil {
+			slog.DebugContext(ctx, "dropped workflow packet without active connection")
+			return nil
+		}
+		return conn.Write(key, packet)
 	}
 }

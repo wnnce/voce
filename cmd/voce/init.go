@@ -14,6 +14,10 @@ import (
 	"github.com/wnnce/voce/internal/machine"
 	"github.com/wnnce/voce/internal/metadata"
 	"github.com/wnnce/voce/internal/remote"
+	agora "github.com/wnnce/voce/internal/rtc/agora"
+	"github.com/wnnce/voce/internal/rtc/webrtc"
+	cloudflare "github.com/wnnce/voce/internal/rtc/webrtc/providers/cloudflare"
+	wtn "github.com/wnnce/voce/internal/rtc/webrtc/providers/wtn"
 	"github.com/wnnce/voce/internal/telemetry"
 	"github.com/wnnce/voce/pkg/logging"
 	"go.opentelemetry.io/otel"
@@ -24,6 +28,8 @@ type appBase struct {
 	sm        *engine.SessionManager
 	wm        engine.WorkflowConfigManager
 	rm        *remote.Manager
+	agora     *agora.Service
+	webrtc    *webrtc.Service
 	store     *engine.PluginStore
 	telemetry *telemetry.Telemetry
 }
@@ -40,9 +46,81 @@ func InitApplication(ctx context.Context, cfg config.VoceBootstrap) (route.AppCo
 		initStandaloneMode(base)
 	}
 
+	if cfg.Server.Mode != "gateway" && cfg.Agora.AppID != "" {
+		service, err := agora.NewService(agora.Config{
+			AppID:          cfg.Agora.AppID,
+			AppCertificate: cfg.Agora.Certificate,
+		}, base.sm)
+		if err != nil {
+			return route.AppContainer{}, nil, err
+		}
+		base.agora = service
+		base.container.Agora = agora.NewHandler(base.sm, service).Attach
+	}
+
+	if cfg.Server.Mode != "gateway" {
+		registry := webrtc.NewRegistry()
+
+		// 1. Register WTN provider if configured
+		if cfg.WebRTC.WTN.AppID != "" {
+			p, err := wtn.New(wtn.Config{
+				AppID:        cfg.WebRTC.WTN.AppID,
+				AppKey:       cfg.WebRTC.WTN.AppKey,
+				BaseURL:      cfg.WebRTC.WTN.BaseURL,
+				STUNs:        cfg.WebRTC.WTN.STUNs,
+				TokenExpire:  cfg.WebRTC.WTN.TokenExpire,
+				StreamPrefix: cfg.WebRTC.WTN.StreamPrefix,
+			}, nil)
+			if err != nil {
+				return route.AppContainer{}, nil, err
+			}
+			_ = registry.Register(p)
+		}
+
+		// 2. Register Cloudflare Calls provider if configured
+		if cfg.WebRTC.Cloudflare.AppID != "" && cfg.WebRTC.Cloudflare.AppSecret != "" {
+			p, err := cloudflare.New(cloudflare.Config{
+				AppID:     cfg.WebRTC.Cloudflare.AppID,
+				AppSecret: cfg.WebRTC.Cloudflare.AppSecret,
+				BaseURL:   cfg.WebRTC.Cloudflare.BaseURL,
+				STUNs:     cfg.WebRTC.Cloudflare.STUNs,
+				Timeout:   cfg.WebRTC.Cloudflare.Timeout,
+			}, nil)
+			if err != nil {
+				return route.AppContainer{}, nil, err
+			}
+			_ = registry.Register(p)
+		}
+
+		defaultProvider := cfg.WebRTC.Default
+		if defaultProvider == "" {
+			defaultProvider = cfg.WebRTC.Provider
+		}
+		if defaultProvider != "" {
+			_ = registry.SetDefault(defaultProvider)
+		}
+
+		if registry.Len() > 0 {
+			service, err := webrtc.NewService(registry, base.sm)
+			if err != nil {
+				return route.AppContainer{}, nil, err
+			}
+			base.webrtc = service
+			handler := webrtc.NewHandler(base.sm, service)
+			base.container.WebRTC = handler.Attach
+			base.container.WebRTCProviders = handler.Providers
+		}
+	}
+
 	cleanup := func() {
 		if base.rm != nil {
 			base.rm.Shutdown()
+		}
+		if base.agora != nil {
+			base.agora.Close()
+		}
+		if base.webrtc != nil {
+			base.webrtc.Close()
 		}
 		base.sm.Stop()
 		if err := base.telemetry.Shutdown(context.Background()); err != nil {

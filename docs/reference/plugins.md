@@ -11,6 +11,7 @@ Voce 采用插件化服务，通过不同的插件组合实现多模态能力的
 - **qwen_asr**: 阿里通义千问实时语音识别。
 - **deepgram_asr**: Deepgram 高效率实时语音识别，支持多种语言。
 - **google_asr**: Google Cloud Speech-to-Text。
+- **soniox_asr**: Soniox 实时流式高准确率语音识别。
 
 ### 2. 文本大模型 (LLM)
 
@@ -24,7 +25,13 @@ Voce 采用插件化服务，通过不同的插件组合实现多模态能力的
 
 - **mllm**: 实时多模态大模型插件，目前支持 Qwen-Omni-Realtime，用于低延迟语音对话链路。
 
-### 4. 语音合成 (TTS)
+### 4. 实时同传与机器翻译 (Translation)
+
+负责实时流式翻译与字幕生成。
+
+- **translator**: 流式同传（SimulMT）插件，采用双层翻译架构（Fast MT 快速机翻 + Final LLM 精翻），支持火山翻译 (Volcengine Translate 原生纯标准库接入)、DeepL 及 OpenAI 兼容大模型，支持流式双语字幕生成与说话人隔离。
+
+### 5. 语音合成 (TTS)
 
 将文本转换为实时音频流。
 
@@ -32,7 +39,7 @@ Voce 采用插件化服务，通过不同的插件组合实现多模态能力的
 - **elevenlabs_tts**: ElevenLabs 语音合成，支持 `previous_text` 上下文衔接。
 - **openai_tts**: OpenAI 原生语音合成。
 
-### 5. 流程控制与辅助 (Control & Utils)
+### 6. 流程控制与辅助 (Control & Utils)
 
 - **interrupter**: 实时打断控制器，负责发送打断信号。
 - **ten_vad**: TEN 原生 VAD 插件，用于 PCM16 16k 音频的实时检测。

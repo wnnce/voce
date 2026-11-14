@@ -47,7 +47,7 @@ Voce 遵循 **“先控制，后数据”** 的原则。所有的长连接流必
 - **请求体 (Request)**:
   ```json
   {
-    "name": "workflow_name", // 对应配置中的 Workflow ID
+    "name": "workflow_name", // 工作流的 name 字段（不是 id）
     "session_id": "optional", // 可选，由调用方指定
     "properties": {
       // 动态配置注入，可覆盖节点默认参数
@@ -71,9 +71,9 @@ Voce 的会话有 **空闲超时机制 (默认 1 分钟)**。
 
 ---
 
-## 3. 传输协议定义 (Dual-Protocol Support)
+## 3. 传输协议定义
 
-Voce 目前同时支持 **WebSocket** 与 **gRPC** 两种流式连接。
+Voce 支持 **WebSocket** 与 **gRPC** 两种流式连接。
 
 ### 3.1 方案 A：WebSocket (Binary Custom Packet)
 
@@ -94,6 +94,123 @@ Voce 目前同时支持 **WebSocket** 与 **gRPC** 两种流式连接。
 
 - **服务定义**: `api/voce/v1/voce.proto`
 - **连接元数据 (Metadata)**: 连接建立时，客户端必须在 Context Metadata 中携带 `session_id: <ID>`。
+
+### 3.3 Agora RTC 接入
+
+单机模式支持通过 Agora 频道接入：音频走 RTC 双向传输，字幕、打断、语音事件等非音频包走 RTM。
+
+`POST /agora/{id}` 为已创建的 session 申请凭证：
+
+| 字段 | 说明 |
+| --- | --- |
+| `app_id` | Agora App ID |
+| `channel` | 频道名，服务端由 session key 派生 |
+| `uid` | 客户端账号，服务端签发，客户端必须使用该值入会 |
+| `rtc_token` | 加入 RTC 频道的 token |
+| `rtm_token` | 登录 RTM 的 token |
+| `expire_at` | 凭证过期时间（Unix 秒） |
+
+- 非音频包以 base64 编码的 Packet 发布到 RTM topic `events`，会话结束时下发 `TypeClose`；
+- 重复请求返回同一份凭证（幂等）；同一 session 已有连接时返回 409；
+- 需要顶层 `agora.app_id` / `agora.certificate` 配置，未配置时不注册该路由；
+- RTC 只在 standalone 装配，gateway 不代理该端点。
+
+详见 [Agora RTC 接入设计](../designs/03-agora-rtc/design.md)。
+
+### 3.4 WebRTC 接入
+
+单机模式可通过 WebRTC 端点为已创建的 Session 建立低延迟媒体连接。WebRTC 媒体与 DataChannel 传输层由 Pion 统一管理，信令层通过可插拔的 `Provider` 抽象支持多服务商（如火山引擎 WTN 与 Cloudflare Calls）的动态注册与按需路由。
+
+详见 [WebRTC 接入设计](../designs/06-webrtc-transport/design.md)。
+
+#### 3.4.1 查询可用 Provider 列表
+
+客户端可调用此端点发现当前服务已启用的 WebRTC 提供商与默认提供商：
+
+```http
+GET /webrtc/providers
+```
+
+响应示例：
+
+```json
+{
+  "code": 200,
+  "message": "ok",
+  "data": {
+    "default": "wtn",
+    "providers": [
+      {
+        "name": "wtn",
+        "label": "Volcengine WTN",
+        "description": "火山引擎 WebRTC 传输网络"
+      },
+      {
+        "name": "cloudflare",
+        "label": "Cloudflare Calls",
+        "description": "Cloudflare 全球 Anycast 边缘 WebRTC"
+      }
+    ]
+  }
+}
+```
+
+#### 3.4.2 建立媒体连接 (Attach)
+
+向会话附加 WebRTC 媒体链路，支持以下方式指定所用的提供商（优先级从高到低）：
+1. URL 路径参数：`POST /webrtc/{session_id}/{provider}`（如 `/webrtc/sess-123/cloudflare`）
+2. URL 查询参数：`POST /webrtc/{session_id}?provider=cloudflare`
+3. JSON 请求体：`POST /webrtc/{session_id}`，Body 为 `{"provider": "cloudflare"}`
+4. 缺省回退：使用配置项 `webrtc.default` 指定的默认 Provider。
+
+请求格式：
+```http
+POST /webrtc/{session_id}
+POST /webrtc/{session_id}/{provider}
+Content-Type: application/json
+
+{
+  "provider": "wtn"
+}
+```
+
+响应示例（WTN）：
+```json
+{
+  "code": 200,
+  "message": "ok",
+  "data": {
+    "app_id": "66a8...",
+    "token": "eyJh...",
+    "pub_stream_id": "voce-sess-pub",
+    "sub_stream_id": "voce-sess-sub",
+    "stuns": ["stun:stun.volcengine.com:3478"]
+  }
+}
+```
+
+响应示例（Cloudflare Calls）：
+```json
+{
+  "code": 200,
+  "message": "ok",
+  "data": {
+    "provider": "cloudflare",
+    "app_id": "d82f...",
+    "session_id": "cf-session-456",
+    "track_name": "agent-audio",
+    "stuns": ["stun:stun.cloudflare.com:3478"]
+  }
+}
+```
+
+#### 3.4.3 媒体与传输约定
+
+- **音频格式**：Opus RTP，RTP clock rate 为 48000，SDP 明确声明单声道播放和 16000Hz 最大播放采样率；Voce 内部音频仍为 16000Hz、单声道、PCM16。
+- **双向音轨**：服务端向远端发布机器人下行音频 Track，并订阅远端客户端上行音频 Track。
+- **控制通道**：文本、字幕、控制和生命周期 Packet 通过名为 `voce` 的 DataChannel 传输。
+- **重连与状态**：PeerConnection 短暂断开时 Workflow 进入 Paused；超过断线宽限期或进入 Failed/Closed 后释放旧绑定，客户端需重新 Attach。
+- **部署模式**：WebRTC 端点只在 standalone 模式注册，Gateway 不代理该端点。
 
 ---
 

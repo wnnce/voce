@@ -145,7 +145,7 @@ func (p *Plugin) readLoop() {
 		if len(recv.Results) == 0 {
 			continue
 		}
-		transcription := &asr.UserTranscription{
+		transcription := &schema.Transcription{
 			Final:        recv.Results[0].IsFinal,
 			LanguageCode: recv.Results[0].LanguageCode,
 		}

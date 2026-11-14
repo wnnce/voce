@@ -1,6 +1,8 @@
 import { useMessageStore } from '@/store/useAppStore';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const rawBase = import.meta.env.BASE_URL || '';
+const defaultBase = rawBase.endsWith('/') ? rawBase.slice(0, -1) : rawBase;
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? defaultBase;
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = `${BASE_URL}${path}`;

@@ -123,14 +123,14 @@ func (p *Plugin) OnMessage(_ *gws.Conn, message *gws.Message) {
 		slog.InfoContext(p.Ctx, "User item created", "event_id", payload.EventID)
 	case TypeText:
 		slog.InfoContext(p.Ctx, "Received text message", "text", payload.Text, "stash", payload.Stash)
-		data := &asr.UserTranscription{
+		data := &schema.Transcription{
 			Text:  payload.Stash,
 			Final: false,
 		}
 		p.HandleTranscription(data)
 	case TypeCompleted:
 		slog.InfoContext(p.Ctx, "Received Completed message", "transcript", payload.Transcript)
-		data := &asr.UserTranscription{
+		data := &schema.Transcription{
 			Text:    payload.Transcript,
 			Final:   true,
 			Emotion: payload.Emotion,

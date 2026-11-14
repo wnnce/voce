@@ -1,21 +1,30 @@
 import { memo, useMemo } from 'react';
 import { Handle, Position, useEdges, useNodes, useNodeId, type NodeProps } from 'reactflow';
-import { Paper, Typography, Box, useTheme, Divider, Tooltip, IconButton, Chip } from '@mui/material';
 import { Workflow, Terminal, Database, Mic, Video, Crown } from 'lucide-react';
 import { EventType, type PluginInfo } from '@/types/workflow';
+import { Tooltip } from '@/components/ui/tooltip';
+import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 const TYPE_COLORS = {
-  [EventType.SIGNAL]: '#3b82f6', // blue
-  [EventType.PAYLOAD]: '#8b5cf6', // purple
-  [EventType.AUDIO]: '#10b981', // green
-  [EventType.VIDEO]: '#f59e0b', // orange
+  [EventType.SIGNAL]: 'var(--port-signal)',
+  [EventType.PAYLOAD]: 'var(--port-payload)',
+  [EventType.AUDIO]: 'var(--port-audio)',
+  [EventType.VIDEO]: 'var(--port-video)',
+};
+
+const TYPE_TEXT_COLORS = {
+  [EventType.SIGNAL]: 'text-sky-500',
+  [EventType.PAYLOAD]: 'text-purple-500',
+  [EventType.AUDIO]: 'text-emerald-500',
+  [EventType.VIDEO]: 'text-amber-500',
 };
 
 const TYPE_ICONS = {
-  [EventType.SIGNAL]: <Terminal size={12} />,
-  [EventType.PAYLOAD]: <Database size={12} />,
-  [EventType.AUDIO]: <Mic size={12} />,
-  [EventType.VIDEO]: <Video size={12} />,
+  [EventType.SIGNAL]: <Terminal size={12} className="text-sky-500" />,
+  [EventType.PAYLOAD]: <Database size={12} className="text-purple-500" />,
+  [EventType.AUDIO]: <Mic size={12} className="text-emerald-500" />,
+  [EventType.VIDEO]: <Video size={12} className="text-amber-500" />,
 };
 
 interface WorkflowNodeData {
@@ -28,7 +37,6 @@ interface WorkflowNodeData {
 }
 
 const CustomNode = ({ data, selected }: NodeProps<WorkflowNodeData>) => {
-  const theme = useTheme();
   const edges = useEdges();
   const nodes = useNodes<WorkflowNodeData>();
   const nodeId = useNodeId();
@@ -44,342 +52,284 @@ const CustomNode = ({ data, selected }: NodeProps<WorkflowNodeData>) => {
       [EventType.VIDEO]: 'video',
     } as Record<number, string>)[type] || 'unknown';
 
-    const properties = isInput 
-      ? (pluginInfo?.inputs || []).filter(i => i.prefix === prefix)
-      : (pluginInfo?.outputs || []).filter(o => o.prefix === prefix);
+    const properties = isInput
+      ? (pluginInfo?.inputs || []).filter((i) => i.prefix === prefix)
+      : (pluginInfo?.outputs || []).filter((o) => o.prefix === prefix);
 
     if (properties.length === 0) return `No ${prefix} data defined`;
 
     return (
-      <Box sx={{ p: 0.5 }}>
-        <Typography variant="caption" fontWeight="bold" sx={{ display: 'block', mb: 0.5, borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
-          {isInput ? 'INPUT' : 'OUTPUT'}: {prefix.toUpperCase()} {portId ? `(Port ${portId})` : ''}
-        </Typography>
+      <div className="p-1 max-w-xs text-xs">
+        <div className="font-bold border-b border-border/60 pb-1 mb-1 tracking-wider uppercase text-[10px] text-muted-foreground">
+          {isInput ? 'INPUT' : 'OUTPUT'}: {prefix} {portId ? `(Port ${portId})` : ''}
+        </div>
         {properties.map((prop, idx) => (
-          <Box key={idx} sx={{ mb: idx === properties.length - 1 ? 0 : 1 }}>
-            {prop.name && (
-              <Typography variant="caption" sx={{ display: 'block', fontStyle: 'italic', opacity: 0.8 }}>
-                • {prop.name}
-              </Typography>
-            )}
+          <div key={idx} className="mb-1 last:mb-0">
+            {prop.name && <div className="font-medium italic text-[11px]">• {prop.name}</div>}
             {prop.fields?.map((field, fIdx) => (
-              <Box key={fIdx} sx={{ pl: 1.5, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Typography variant="caption" sx={{ fontSize: '0.65rem' }}>
-                  {field.key}: <Box component="span" sx={{ color: 'primary.light' }}>{field.type}</Box>
-                </Typography>
-                {field.required && (
-                  <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'error.light' }}>*</Typography>
-                )}
-              </Box>
+              <div key={fIdx} className="pl-2 flex items-center gap-1 text-[10px]">
+                <span className="font-mono text-muted-foreground">{field.key}:</span>
+                <span className="text-primary font-mono">{field.type}</span>
+                {field.required && <span className="text-destructive">*</span>}
+              </div>
             ))}
             {(!prop.fields || prop.fields.length === 0) && (
-              <Typography variant="caption" sx={{ pl: 1.5, fontSize: '0.65rem', opacity: 0.6 }}>
-                (Signal only)
-              </Typography>
+              <div className="pl-2 text-[10px] text-muted-foreground italic">(Signal only)</div>
             )}
-          </Box>
+          </div>
         ))}
-      </Box>
+      </div>
     );
   };
 
   return (
-    <Paper
-      elevation={0}
-      sx={{
-        width: 260,
-        overflow: 'visible',
-        border: '1px solid',
-        borderColor: selected ? theme.palette.primary.main : 'var(--border-color)',
-        bgcolor: 'background.paper',
-        borderRadius: '12px',
-        transition: 'all 0.1s ease-out',
-        boxShadow: selected ? `0 0 0 1px ${theme.palette.primary.main}` : 'none',
-      }}
+    <div
+      className={cn(
+        'w-[260px] rounded-xl border bg-card/95 backdrop-blur-md shadow-sm transition-all duration-200 select-none',
+        selected
+          ? 'border-primary ring-1 ring-primary shadow-md'
+          : 'border-border/80 hover:border-border-strong hover:shadow-md hover:-translate-y-0.5',
+        data.isHead && 'ring-1 ring-amber-500/50'
+      )}
     >
       {/* Header */}
-      <Box sx={{ 
-        p: '10px 12px', 
-        display: 'flex', 
-        alignItems: 'center', 
-        gap: 1.5, 
-        bgcolor: 'background.paper', // Unified white card aesthetic
-        borderTopLeftRadius: '12px', 
-        borderTopRightRadius: '12px',
-        borderBottom: '1px solid var(--border-color)'
-      }}>
-        <Box sx={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center', 
-          width: 28, 
-          height: 28, 
-          borderRadius: '8px', 
-          bgcolor: data.isHead ? 'warning.main' : 'primary.main', 
-          color: 'white',
-          boxShadow: data.isHead ? '0 0 8px rgba(237, 108, 2, 0.4)' : 'none'
-        }}>
-          {data.isHead ? <Crown size={18} /> : <Workflow size={18} />}
-        </Box>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <Typography variant="body2" fontWeight="800" noWrap sx={{ flex: 1 }}>
+      <div className="px-3 py-2 flex items-center gap-2 border-b border-border/80 bg-sunken/30 rounded-t-xl">
+        <div
+          className={cn(
+            'flex items-center justify-center w-6 h-6 rounded-md shrink-0 text-white transition-transform duration-150 hover:scale-105',
+            data.isHead ? 'bg-amber-500 shadow-xs' : 'bg-primary'
+          )}
+        >
+          {data.isHead ? <Crown size={14} /> : <Workflow size={14} />}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-semibold text-foreground truncate flex-1">
               {data.name || 'Untitled Node'}
-            </Typography>
+            </span>
             {data.isHead && (
-              <Chip 
-                label="HEAD" 
-                size="small" 
-                color="warning" 
-                sx={{ 
-                  height: 16, 
-                  fontSize: '0.6rem', 
-                  fontWeight: 900, 
-                  borderRadius: '4px',
-                  '& .MuiChip-label': { px: 0.5 }
-                }} 
-              />
+              <Badge variant="warning" className="h-4 px-1 text-[9px] font-black uppercase">
+                HEAD
+              </Badge>
             )}
             {!data.isHead && data.onSetAsHead && (
-              <Tooltip title="Set as Head">
-                <IconButton 
-                  size="small" 
+              <Tooltip title="Set as Entry Head Node">
+                <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     data.onSetAsHead?.();
                   }}
-                  sx={{ p: 0.2, color: 'text.disabled', '&:hover': { color: 'warning.main' } }}
+                  className="text-muted-foreground/50 hover:text-amber-500 p-0.5 rounded cursor-pointer transition-transform duration-150 hover:scale-115 active:scale-90"
                 >
-                  <Crown size={14} />
-                </IconButton>
+                  <Crown size={13} />
+                </button>
               </Tooltip>
             )}
-          </Box>
-          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem', display: 'block', lineHeight: 1 }}>
+          </div>
+          <div className="text-[10px] text-muted-foreground truncate font-mono">
             {pluginInfo?.namespace ? `${pluginInfo.namespace} / ${data.plugin}` : data.plugin || 'Generic'}
-          </Typography>
-        </Box>
-      </Box>
+          </div>
+        </div>
+      </div>
 
       {/* Body with Three Columns */}
-      <Box sx={{ display: 'flex', minHeight: 120 }}>
+      <div className="flex min-h-[110px]">
         {/* Left Input Zone */}
-        <Box sx={{ 
-          width: 36, 
-          display: 'flex', 
-          flexDirection: 'column', 
-          justifyContent: 'space-around', 
-          alignItems: 'center',
-          py: 2,
-          borderRight: '1px solid rgba(0,0,0,0.05)',
-          bgcolor: 'rgba(0,0,0,0.01)'
-        }}>
-          {(() => {
-            return eventTypes.map((type) => {
-              const prefix = {
-                [EventType.SIGNAL]: 'signal',
-                [EventType.PAYLOAD]: 'payload',
-                [EventType.AUDIO]: 'audio',
-                [EventType.VIDEO]: 'video',
-              }[type];
+        <div className="w-8 flex flex-col justify-around items-center py-2 border-r border-border/50 bg-sunken/20">
+          {eventTypes.map((type) => {
+            const prefix = {
+              [EventType.SIGNAL]: 'signal',
+              [EventType.PAYLOAD]: 'payload',
+              [EventType.AUDIO]: 'audio',
+              [EventType.VIDEO]: 'video',
+            }[type];
 
-              const isRequired = pluginInfo?.inputs?.some(i => i.prefix === prefix && (
-                !i.fields || i.fields.length === 0 || i.fields.some(f => f.required)
-              ));
+            const isRequired = pluginInfo?.inputs?.some(
+              (i) => i.prefix === prefix && (!i.fields || i.fields.length === 0 || i.fields.some((f) => f.required))
+            );
 
-              const isConnected = edges.some(e => e.target === nodeId && e.targetHandle === `target-${type}`);
-              const isMissing = isRequired && !isConnected;
+            const isConnected = edges.some(
+              (e) => e.target === nodeId && e.targetHandle === `target-${type}`
+            );
+            const isMissing = isRequired && !isConnected;
 
-              return (
-                <Box key={`in-${type}`} sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
-                  <Tooltip 
-                    title={renderDataTooltip(type, true)} 
-                    placement="left"
-                    arrow
+            return (
+              <div key={`in-${type}`} className="relative flex items-center justify-center w-full">
+                <Tooltip title={renderDataTooltip(type, true)} side="left">
+                  <span
+                    className={cn(
+                      'cursor-help p-0.5 flex items-center justify-center',
+                      isMissing && 'animate-pulse text-destructive'
+                    )}
                   >
-                    <Box sx={{ color: isMissing ? 'error.main' : TYPE_COLORS[type], display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0.9 }}>
-                      {TYPE_ICONS[type]}
-                    </Box>
-                  </Tooltip>
-                  <Handle
-                    type="target"
-                    position={Position.Left}
-                    id={`target-${type}`}
-                    style={{ 
-                      left: -6, 
-                      background: TYPE_COLORS[type],
-                      width: 10,
-                      height: 10,
-                      border: '2px solid #fff',
-                      boxShadow: '0 0 4px rgba(0,0,0,0.2)'
-                    }}
-                  />
-                </Box>
-              );
-            });
-          })()}
-        </Box>
+                    {TYPE_ICONS[type]}
+                  </span>
+                </Tooltip>
+                <Handle
+                  type="target"
+                  position={Position.Left}
+                  id={`target-${type}`}
+                  className="transition-transform duration-150 hover:scale-135 cursor-crosshair"
+                  style={{
+                    left: -5,
+                    background: TYPE_COLORS[type],
+                    width: 9,
+                    height: 9,
+                    border: '2px solid var(--bg-card)',
+                    boxShadow: '0 0 2px rgba(0,0,0,0.3)',
+                  }}
+                />
+              </div>
+            );
+          })}
+        </div>
 
         {/* Central Content */}
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-around', py: 2, px: 2 }}>
-          {(() => {
-            return eventTypes.map((type) => {
-              const upstreamNames = edges
-                .filter(e => e.target === nodeId && e.targetHandle === `target-${type}`)
-                .map(e => nodes.find(n => n.id === e.source)?.data?.name || 'Unknown');
-              
-              const downstreamNames = edges
-                .filter(e => e.source === nodeId && e.sourceHandle?.startsWith(`source-${type}`))
-                .map(e => nodes.find(n => n.id === e.target)?.data?.name || 'Unknown');
+        <div className="flex-1 flex flex-col justify-around py-2 px-3">
+          {eventTypes.map((type) => {
+            const upstreamNames = edges
+              .filter((e) => e.target === nodeId && e.targetHandle === `target-${type}`)
+              .map((e) => nodes.find((n) => n.id === e.source)?.data?.name || 'Unknown');
 
-              return (
-                <Box 
-                  key={`center-${type}`} 
-                  sx={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center', 
-                    height: 24, 
-                    gap: 1.5
-                  }}
+            const downstreamNames = edges
+              .filter((e) => e.source === nodeId && e.sourceHandle?.startsWith(`source-${type}`))
+              .map((e) => nodes.find((n) => n.id === e.target)?.data?.name || 'Unknown');
+
+            return (
+              <div key={`center-${type}`} className="flex items-center justify-center h-5 gap-2">
+                <Tooltip
+                  title={
+                    upstreamNames.length > 0 ? (
+                      <div className="p-1 text-[11px]">
+                        <div className="font-semibold text-muted-foreground uppercase text-[9px] mb-0.5">
+                          UPSTREAM ({upstreamNames.length})
+                        </div>
+                        {upstreamNames.map((n, i) => (
+                          <div key={i}>• {n}</div>
+                        ))}
+                      </div>
+                    ) : (
+                      'No upstream connection'
+                    )
+                  }
                 >
-                  <Tooltip 
-                    arrow
-                    title={upstreamNames.length > 0 ? (
-                      <Box sx={{ p: 0.5 }}>
-                        <Typography variant="caption" fontWeight="bold" sx={{ display: 'block', mb: 0.5 }}>UPSTREAM:</Typography>
-                        {upstreamNames.map((name, i) => <Typography key={i} variant="caption" sx={{ display: 'block' }}>• {name}</Typography>)}
-                      </Box>
-                    ) : "No upstream connection"}
+                  <span
+                    className={cn(
+                      'font-mono text-xs font-semibold px-1.5 py-0.2 rounded cursor-help transition-all duration-150 hover:scale-105 active:scale-95',
+                      upstreamNames.length > 0
+                        ? `${TYPE_TEXT_COLORS[type]} bg-sunken/60 border border-border/40`
+                        : 'text-muted-foreground/40'
+                    )}
                   >
-                    <Typography 
-                      variant="caption" 
-                      sx={{ 
-                        fontWeight: '800', 
-                        color: upstreamNames.length > 0 ? TYPE_COLORS[type] : 'text.disabled',
-                        bgcolor: upstreamNames.length > 0 ? `${TYPE_COLORS[type]}11` : 'transparent',
-                        px: 0.8,
-                        borderRadius: '4px',
-                        fontSize: '0.75rem',
-                        cursor: 'help'
-                      }}
-                    >
-                      {upstreamNames.length}
-                    </Typography>
-                  </Tooltip>
-                  
-                  <Box sx={{ width: 1, height: 10, bgcolor: 'divider', opacity: 0.3, borderRadius: 1 }} />
-                  
-                  <Tooltip 
-                    arrow
-                    title={downstreamNames.length > 0 ? (
-                      <Box sx={{ p: 0.5 }}>
-                        <Typography variant="caption" fontWeight="bold" sx={{ display: 'block', mb: 0.5 }}>DOWNSTREAM:</Typography>
-                        {downstreamNames.map((name, i) => <Typography key={i} variant="caption" sx={{ display: 'block' }}>• {name}</Typography>)}
-                      </Box>
-                    ) : "No downstream connection"}
+                    {upstreamNames.length}
+                  </span>
+                </Tooltip>
+
+                <span className="w-px h-2.5 bg-border/60" />
+
+                <Tooltip
+                  title={
+                    downstreamNames.length > 0 ? (
+                      <div className="p-1 text-[11px]">
+                        <div className="font-semibold text-muted-foreground uppercase text-[9px] mb-0.5">
+                          DOWNSTREAM ({downstreamNames.length})
+                        </div>
+                        {downstreamNames.map((n, i) => (
+                          <div key={i}>• {n}</div>
+                        ))}
+                      </div>
+                    ) : (
+                      'No downstream connection'
+                    )
+                  }
+                >
+                  <span
+                    className={cn(
+                      'font-mono text-xs font-semibold px-1.5 py-0.2 rounded cursor-help transition-all duration-150 hover:scale-105 active:scale-95',
+                      downstreamNames.length > 0
+                        ? `${TYPE_TEXT_COLORS[type]} bg-sunken/60 border border-border/40`
+                        : 'text-muted-foreground/40'
+                    )}
                   >
-                    <Typography 
-                      variant="caption" 
-                      sx={{ 
-                        fontWeight: '800', 
-                        color: downstreamNames.length > 0 ? TYPE_COLORS[type] : 'text.disabled',
-                        bgcolor: downstreamNames.length > 0 ? `${TYPE_COLORS[type]}11` : 'transparent',
-                        px: 0.8,
-                        borderRadius: '4px',
-                        fontSize: '0.75rem',
-                        cursor: 'help'
-                      }}
-                    >
-                      {downstreamNames.length}
-                    </Typography>
-                  </Tooltip>
-                </Box>
-              );
-            });
-          })()}
-        </Box>
+                    {downstreamNames.length}
+                  </span>
+                </Tooltip>
+              </div>
+            );
+          })}
+        </div>
 
         {/* Right Output Zone */}
-        <Box sx={{ 
-          width: 48, 
-          display: 'flex', 
-          flexDirection: 'column', 
-          gap: 1,
-          justifyContent: 'flex-start',
-          alignItems: 'center',
-          py: 2,
-          borderLeft: '1px solid rgba(0,0,0,0.05)',
-          bgcolor: 'rgba(0,0,0,0.01)'
-        }}>
+        <div className="w-10 flex flex-col justify-start items-center py-2 gap-1 border-l border-border/50 bg-sunken/20">
           {/* Broadcast Outputs */}
           {eventTypes.map((type) => (
-            <Box key={`out-${type}-0`} sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', mb: 0.5 }}>
-              <Tooltip 
-                title={renderDataTooltip(type, false)} 
-                placement="right"
-                arrow
-              >
-                <Box sx={{ color: TYPE_COLORS[type], display: 'flex', opacity: 0.9 }}>
+            <div
+              key={`out-${type}-0`}
+              className="relative flex items-center justify-center w-full mb-0.5"
+            >
+              <Tooltip title={renderDataTooltip(type, false)} side="right">
+                <span className="cursor-help p-0.5 flex items-center justify-center">
                   {TYPE_ICONS[type]}
-                </Box>
+                </span>
               </Tooltip>
               <Handle
                 type="source"
                 position={Position.Right}
                 id={`source-${type}-0`}
-                style={{ 
-                  right: -6, 
+                className="transition-transform duration-150 hover:scale-135 cursor-crosshair"
+                style={{
+                  right: -5,
                   background: TYPE_COLORS[type],
-                  width: 10,
-                  height: 10,
-                  border: '2px solid #fff',
-                  boxShadow: '0 0 4px rgba(0,0,0,0.2)'
+                  width: 9,
+                  height: 9,
+                  border: '2px solid var(--bg-card)',
+                  boxShadow: '0 0 2px rgba(0,0,0,0.3)',
                 }}
               />
-            </Box>
+            </div>
           ))}
-          
-          {ports.length > 0 && <Divider sx={{ width: '60%', my: 0.5 }} />}
+
+          {ports.length > 0 && <div className="w-4 h-px bg-border/60 my-0.5" />}
 
           {/* Dedicated Ports */}
           {ports.map((port) => (
-            <Box key={`out-port-${port.port}`} sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
-              <Tooltip title={renderDataTooltip(port.type, false, port.port)} placement="right" arrow>
-                <Box sx={{ 
-                  width: 24, 
-                  height: 18, 
-                  borderRadius: '4px', 
-                  bgcolor: TYPE_COLORS[port.type] ? `${TYPE_COLORS[port.type]}22` : 'action.selected',
-                  border: `1px solid ${TYPE_COLORS[port.type] || 'transparent'}`,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'help'
-                }}>
-                  <Typography sx={{ fontSize: '0.6rem', fontWeight: 'bold', color: TYPE_COLORS[port.type] }}>
-                    {port.port}
-                  </Typography>
-                </Box>
+            <div
+              key={`out-port-${port.port}`}
+              className="relative flex items-center justify-center w-full"
+            >
+              <Tooltip title={renderDataTooltip(port.type, false, port.port)} side="right">
+                <span
+                  className="w-5 h-4 rounded text-[9px] font-mono font-bold border flex items-center justify-center cursor-help transition-transform duration-150 hover:scale-105"
+                  style={{
+                    color: TYPE_COLORS[port.type],
+                    borderColor: `${TYPE_COLORS[port.type]}40`,
+                    background: `${TYPE_COLORS[port.type]}15`,
+                  }}
+                >
+                  {port.port}
+                </span>
               </Tooltip>
               <Handle
                 type="source"
                 position={Position.Right}
                 id={`source-${port.type}-${port.port}`}
-                style={{ 
-                  right: -6, 
+                className="transition-transform duration-150 hover:scale-135 cursor-crosshair"
+                style={{
+                  right: -5,
                   background: TYPE_COLORS[port.type] || '#ccc',
-                  width: 10,
-                  height: 10,
-                  border: '2px solid #fff',
-                  boxShadow: '0 0 4px rgba(0,0,0,0.2)'
+                  width: 9,
+                  height: 9,
+                  border: '2px solid var(--bg-card)',
+                  boxShadow: '0 0 2px rgba(0,0,0,0.3)',
                 }}
               />
-            </Box>
+            </div>
           ))}
-        </Box>
-      </Box>
-    </Paper>
+        </div>
+      </div>
+    </div>
   );
 };
 

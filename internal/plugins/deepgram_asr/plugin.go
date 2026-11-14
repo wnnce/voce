@@ -149,19 +149,34 @@ func (p *Plugin) handleResults(msg *serverMessage) {
 	if msg.Channel == nil || len(msg.Channel.Alternatives) == 0 {
 		return
 	}
-	transcript := msg.Channel.Alternatives[0].Transcript
+	alt := msg.Channel.Alternatives[0]
+	transcript := alt.Transcript
 	if transcript == "" && !msg.IsFinal {
 		return
+	}
+
+	speaker := ""
+	if p.cfg.Diarize {
+		speaker = "speaker_0"
+		for _, w := range alt.Words {
+			if w.Speaker != nil {
+				speaker = fmt.Sprintf("speaker_%d", *w.Speaker)
+				break
+			}
+		}
 	}
 
 	slog.DebugContext(p.Ctx, "deepgram_asr: result",
 		"transcript", transcript,
 		"is_final", msg.IsFinal,
-		"speech_final", msg.SpeechFinal)
+		"speech_final", msg.SpeechFinal,
+		"speaker", speaker)
 
-	data := &asr.UserTranscription{
-		Text:  transcript,
-		Final: msg.IsFinal && msg.SpeechFinal,
+	data := &schema.Transcription{
+		Text:    transcript,
+		Stable:  msg.IsFinal,
+		Final:   msg.IsFinal && msg.SpeechFinal,
+		Speaker: speaker,
 	}
 	p.HandleTranscription(data)
 }
@@ -186,6 +201,10 @@ func (p *Plugin) buildURL() (string, error) {
 	}
 	if p.cfg.Language != "" {
 		q.Set("language", p.cfg.Language)
+	}
+
+	if p.cfg.Diarize {
+		q.Set("diarize", "true")
 	}
 
 	q.Set("interim_results", "true")
@@ -222,10 +241,12 @@ func (p *Plugin) buildURL() (string, error) {
 func init() {
 	if err := engine.RegisterPlugin(NewPlugin, engine.PluginMetadata{
 		Name:        "deepgram_asr",
-		Description: "Deepgram real-time streaming ASR with server-side VAD",
+		Description: "Deepgram real-time streaming ASR with server-side VAD & Diarization",
 		Outputs: engine.NewPropertyBuilder().
 			AddPayload(schema.PayloadASRResult, "text", engine.TypeString, true).
 			AddPayload(schema.PayloadASRResult, "is_final", engine.TypeBoolean, true).
+			AddPayload(schema.PayloadASRResult, "is_stable", engine.TypeBoolean, false).
+			AddPayload(schema.PayloadASRResult, "speaker", engine.TypeString, false).
 			Build(),
 	}); err != nil {
 		panic(err)

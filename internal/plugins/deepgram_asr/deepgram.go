@@ -22,6 +22,7 @@ type DeepgramConfig struct {
 	Language       string `mapstructure:"language" json:"language" jsonschema:"title=Language,description=BCP-47 language tag (e.g. en-US zh-CN),default=zh-CN"`
 	EndpointingMs  int    `mapstructure:"endpointing_ms" json:"endpointing_ms" jsonschema:"title=Endpointing (ms),description=Silence duration in ms before Deepgram finalizes a speech segment,default=300"`
 	UtteranceEndMs int    `mapstructure:"utterance_end_ms" json:"utterance_end_ms" jsonschema:"title=Utterance End (ms),description=How long (ms) to wait after the last word before emitting UtteranceEnd,default=1000"`
+	Diarize        bool   `mapstructure:"diarize" json:"diarize" jsonschema:"title=Diarize,description=Enable multi-speaker diarization,default=false"`
 }
 
 func (d *DeepgramConfig) Schema() *jsonschema.Schema {
@@ -46,7 +47,17 @@ type channel struct {
 	Alternatives []alternative `json:"alternatives"`
 }
 
+type word struct {
+	Word           string  `json:"word"`
+	PunctuatedWord string  `json:"punctuated_word"`
+	Start          float64 `json:"start"`
+	End            float64 `json:"end"`
+	Confidence     float64 `json:"confidence"`
+	Speaker        *int    `json:"speaker,omitempty"`
+}
+
 type alternative struct {
 	Transcript string  `json:"transcript"`
 	Confidence float64 `json:"confidence"`
+	Words      []word  `json:"words,omitempty"`
 }

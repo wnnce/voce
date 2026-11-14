@@ -5,14 +5,13 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"sync"
 
 	pb "github.com/wnnce/voce/api/voce/v1"
 	"github.com/wnnce/voce/internal/engine"
+	"github.com/wnnce/voce/internal/metadata"
 	"github.com/wnnce/voce/internal/protocol"
-	"github.com/wnnce/voce/internal/schema"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
+	grpcmetadata "google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
@@ -26,102 +25,68 @@ func NewStreamService(manager *engine.SessionManager) *StreamService {
 }
 
 func (s *StreamService) RealtimeStream(stream pb.VoceService_RealtimeStreamServer) error {
-	md, ok := metadata.FromIncomingContext(stream.Context())
+	md, ok := grpcmetadata.FromIncomingContext(stream.Context())
 	if !ok || len(md.Get("session_id")) == 0 {
 		return status.Error(codes.InvalidArgument, "missing session_id in metadata")
 	}
-	sessionId := md.Get("session_id")[0]
-	sessionKey, err := protocol.ParseSessionKey(sessionId)
+	sessionID := md.Get("session_id")[0]
+	sessionKey, err := protocol.ParseSessionKey(sessionID)
 	if err != nil {
 		return status.Error(codes.InvalidArgument, "invalid session_id")
 	}
 
 	session, ok := s.manager.LoadSession(sessionKey)
 	if !ok {
-		return status.Errorf(codes.NotFound, "session %s not found", sessionId)
+		return status.Errorf(codes.NotFound, "session %s not found", sessionID)
 	}
 
-	if !session.Acquire() {
-		return status.Errorf(codes.ResourceExhausted, "session %s is busy", sessionId)
+	// Carry the session into the logger's context group, matching the HTTP path
+	// where the same value is stored under trace_id at session creation.
+	ctx := context.WithValue(stream.Context(), metadata.ContextTraceKey, sessionID)
+
+	lease, err := session.Bind()
+	if err != nil {
+		return status.Errorf(codes.ResourceExhausted, "session %s is busy", sessionID)
 	}
 	defer func() {
-		session.Release()
-		if session.Workflow.State() == engine.WorkflowStateRunning {
-			_ = session.Workflow.Pause()
-			slog.InfoContext(stream.Context(), "grpc disconnected, session paused", "id", sessionId)
-		}
+		_ = session.Unbind(lease, true)
+		slog.InfoContext(ctx, "grpc session released")
 	}()
 
-	if session.Workflow.State() == engine.WorkflowStatePaused {
-		if err := session.Workflow.Resume(); err != nil {
-			slog.ErrorContext(stream.Context(), "resume workflow failed", "error", err)
-			return status.Errorf(codes.Internal, "resume failed: %v", err)
-		}
-	}
-	slog.InfoContext(stream.Context(), "grpc session connected", "id", sessionId)
-
-	ctx, cancel := context.WithCancel(stream.Context())
+	connectionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	if !session.SetWriter(lease, s.withPacketWriter(stream, cancel)) {
+		slog.WarnContext(ctx, "grpc session writer mount failed", "lease", uint64(lease))
+		return status.Error(codes.Aborted, "session lease mount failed")
+	}
+	if err := session.Activate(lease); err != nil {
+		slog.ErrorContext(ctx, "grpc activate workflow failed", "error", err)
+		return status.Errorf(codes.Internal, "resume failed: %v", err)
+	}
+	slog.InfoContext(ctx, "grpc session connected")
 
-	wg := &sync.WaitGroup{}
-	wg.Add(2)
-	go s.writeLoop(ctx, cancel, stream, session, wg)
-	go s.readLoop(ctx, cancel, stream, session, wg)
-	wg.Wait()
-
-	slog.InfoContext(stream.Context(), "grpc session closed", "id", sessionId)
+	go s.readLoop(connectionCtx, stream, session, lease, cancel)
+	<-connectionCtx.Done()
+	slog.InfoContext(ctx, "grpc session closed")
 	return nil
 }
 
-func (s *StreamService) writeLoop(
+// readLoop is the single synchronous Recv path. It shares the connection
+// context with the Session output loop; any terminal read/input result cancels
+// the same connection lifecycle.
+func (s *StreamService) readLoop(
 	ctx context.Context,
-	cancel context.CancelFunc,
 	stream pb.VoceService_RealtimeStreamServer,
 	session *engine.Session,
-	wg *sync.WaitGroup,
+	lease engine.Lease,
+	cancel context.CancelFunc,
 ) {
-	defer func() {
-		cancel()
-		wg.Done()
-	}()
+	defer cancel()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case packet, ok := <-session.Workflow.Output():
-			if !ok {
-				slog.WarnContext(ctx, "workflow output channel closed")
-				return
-			}
-			resp := &pb.Packet{
-				Type:    pb.PacketType(packet.Type),
-				Encode:  pb.PacketEncode(packet.Encode),
-				Payload: packet.Payload,
-			}
-			if err := stream.Send(resp); err != nil {
-				slog.ErrorContext(ctx, "grpc send failed", "error", err)
-				return
-			}
-			realtimeMetrics.grpcBytesSent.Add(realtimeMetricContext, int64(len(packet.Payload)))
-			protocol.ReleasePacket(packet)
-		}
-	}
-}
-
-func (s *StreamService) readLoop(
-	ctx context.Context,
-	cancel context.CancelFunc,
-	stream pb.VoceService_RealtimeStreamServer,
-	session *engine.Session,
-	wg *sync.WaitGroup,
-) {
-	defer func() {
-		cancel()
-		wg.Done()
-	}()
-	for {
-		if ctx.Err() != nil {
-			return
+		default:
 		}
 		req, err := stream.Recv()
 		if err != nil {
@@ -130,21 +95,49 @@ func (s *StreamService) readLoop(
 			}
 			return
 		}
-		session.UpdateActivity()
-		switch protocol.PacketType(req.Type) {
-		case protocol.TypeAudio:
-			audio := schema.NewAudio("audio", engine.AudioSampleRate, engine.AudioChannels)
-			audio.SetBytes(req.Payload)
-			realtimeMetrics.grpcBytesReceived.Add(realtimeMetricContext, int64(len(req.Payload)))
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 
-			if err = session.Workflow.SendToHead(audio.ReadOnly()); err != nil {
-				audio.Release()
-				slog.ErrorContext(ctx, "send to workflow failed", "error", err)
-			}
-		case protocol.TypeClose:
-			slog.InfoContext(ctx, "client requested close via packet")
+		realtimeMetrics.grpcBytesReceived.Add(realtimeMetricContext, int64(len(req.Payload)))
+		packet := protocol.AcquirePacket()
+		packet.Type = protocol.PacketType(req.Type)
+		packet.Encode = protocol.PacketEncode(req.Encode)
+		packet.SetPayload(req.Payload)
+		err = session.ReceivePacket(lease, packet)
+		protocol.ReleasePacket(packet)
+		if errors.Is(err, engine.ErrSessionCloseInput) {
 			s.manager.RemoveSession(session.Key)
 			return
 		}
+		if errors.Is(err, engine.ErrLeaseInvalid) {
+			return
+		}
+		if err != nil {
+			slog.ErrorContext(ctx, "grpc session input failed", "type", packet.Type, "error", err)
+			return
+		}
+	}
+}
+
+func (s *StreamService) withPacketWriter(
+	stream pb.VoceService_RealtimeStreamServer,
+	cancel context.CancelFunc,
+) engine.PacketWriter {
+	return func(packet *protocol.Packet) error {
+		if err := stream.Send(&pb.Packet{
+			Type:    pb.PacketType(packet.Type),
+			Encode:  pb.PacketEncode(packet.Encode),
+			Payload: packet.Payload,
+		}); err != nil {
+			if cancel != nil {
+				cancel()
+			}
+			return err
+		}
+		realtimeMetrics.grpcBytesSent.Add(realtimeMetricContext, int64(len(packet.Payload)))
+		return nil
 	}
 }

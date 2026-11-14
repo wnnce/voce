@@ -37,7 +37,7 @@ Voce 将这些约束作为运行时的基础能力处理：
 
 ```mermaid
 flowchart LR
-    Client[WebSocket / gRPC 客户端] --> Session[Session 与传输层]
+    Client[WebSocket / WebRTC / Agora / gRPC 客户端] --> Session[Session 与传输层]
     Session --> Graph
 
     subgraph Workflow[Workflow 运行时]
@@ -98,10 +98,10 @@ Audio → ASR → Interrupter → LLM → Markdown Filter → TTS → Audio
 Audio → VAD → Realtime MLLM → Audio / Transcript
 ```
 
-### 实时同声传译
+### 实时同传与双语字幕
 
 ```text
-Audio → ASR → Translation LLM → TTS → Audio
+Audio → ASR → SimulMT 翻译插件（快速机翻 + 大模型精翻） → 双语字幕 / TTS → Audio
 ```
 
 仓库内置两个示例 Workflow：
@@ -115,17 +115,13 @@ Audio → ASR → Translation LLM → TTS → Audio
 
 - Go 1.27+
 - Git
-- FFmpeg 开发库（`libswresample` 和 `libavutil`）
+- FFmpeg 开发库
 - Node.js 和 pnpm，用于构建内嵌的 Workflow 编辑器
 
-安装音频处理依赖：
+一键安装系统编译依赖（支持 macOS, Ubuntu, Debian, Arch Linux）：
 
 ```bash
-# Ubuntu / Debian
-sudo apt-get install libswresample-dev libavutil-dev
-
-# macOS
-brew install ffmpeg
+./scripts/install-sys-deps.sh
 ```
 
 ### 构建并启动
@@ -202,9 +198,10 @@ Workflow 使用 JSON 描述。执行前，Voce 会校验 Node 标识、图拓扑
 
 | 分类 | Plugin |
 | --- | --- |
-| ASR | Qwen ASR、Deepgram、Google Cloud Speech-to-Text |
+| ASR | Qwen ASR、Deepgram、Google Cloud Speech-to-Text、Soniox ASR |
 | LLM | OpenAI-compatible Chat Completion Provider |
 | 实时 MLLM | Qwen Omni Realtime |
+| 实时同传/翻译 | Translator（流式同传插件，支持火山翻译、DeepL 快速机翻及 OpenAI 兼容 LLM 精翻） |
 | TTS | MiniMax、ElevenLabs、OpenAI TTS |
 | 控制与辅助 | Interrupter、TEN VAD、Caption、Markdown Filter、Sink |
 
@@ -222,6 +219,9 @@ Workflow 使用 JSON 描述。执行前，Voce 会校验 Node 标识、图拓扑
 | `POST /sessions/renew/{id}` | 为闲置 Session 续期。 |
 | `DELETE /sessions/{id}` | 停止并删除 Session。 |
 | `GET /realtime/{id}` | 升级为实时 WebSocket 连接。 |
+| `GET /webrtc/providers` | 获取可用的 WebRTC Provider 列表（WTN、Cloudflare Calls）。 |
+| `POST /webrtc/{id}` | WebRTC WHIP/WHEP 实时媒体会话协商。 |
+| `POST /agora/{id}` | 将 Session 接入 Agora RTC/RTM 频道并返回访问凭据（仅 standalone 模式）。 |
 | `GET /metrics` | 以 Prometheus 格式导出 OpenTelemetry 指标。 |
 
 Voce 同时提供定义在 `api/voce/v1/voce.proto` 中的双向 gRPC 实时流。

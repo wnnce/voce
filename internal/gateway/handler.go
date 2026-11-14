@@ -14,7 +14,6 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/lesismal/nbio/nbhttp/websocket"
-	"github.com/wnnce/voce/biz/handler"
 	"github.com/wnnce/voce/internal/errcode"
 	"github.com/wnnce/voce/internal/protocol"
 	"github.com/wnnce/voce/pkg/httpx"
@@ -206,7 +205,7 @@ func (h *Handler) HandleRealtime(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *Handler) WebHandler(w http.ResponseWriter, r *http.Request) {
-	handler.WebHandler(w, r)
+	httpx.WebHandler(w, r)
 }
 
 func (h *Handler) getSessionFromRequest(r *http.Request) (*Session, error) {

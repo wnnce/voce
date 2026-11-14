@@ -37,7 +37,7 @@ Voce treats these constraints as runtime concerns:
 
 ```mermaid
 flowchart LR
-    Client[WebSocket / gRPC Client] --> Session[Session & Transport]
+    Client[WebSocket / WebRTC / Agora / gRPC Client] --> Session[Session & Transport]
     Session --> Graph
 
     subgraph Workflow[Workflow Runtime]
@@ -98,10 +98,10 @@ Audio → ASR → Interrupter → LLM → Markdown Filter → TTS → Audio
 Audio → VAD → Realtime MLLM → Audio / Transcript
 ```
 
-### Streaming interpretation
+### Streaming interpretation and bilingual subtitles
 
 ```text
-Audio → ASR → Translation LLM → TTS → Audio
+Audio → ASR → SimulMT Translator (Fast MT + Final LLM) → Captions / TTS → Audio
 ```
 
 The repository includes two example Workflows:
@@ -115,17 +115,13 @@ The repository includes two example Workflows:
 
 - Go 1.27+
 - Git
-- FFmpeg development libraries (`libswresample` and `libavutil`)
+- FFmpeg development libraries
 - Node.js and pnpm for the embedded Workflow editor
 
-Install the native audio dependencies:
+Install the system build dependencies (supports macOS, Ubuntu, Debian, Arch Linux):
 
 ```bash
-# Ubuntu / Debian
-sudo apt-get install libswresample-dev libavutil-dev
-
-# macOS
-brew install ffmpeg
+./scripts/install-sys-deps.sh
 ```
 
 ### Build and run
@@ -202,9 +198,10 @@ Workflow definitions are JSON documents. Before execution, Voce verifies node id
 
 | Category | Plugins |
 | --- | --- |
-| ASR | Qwen ASR, Deepgram, Google Cloud Speech-to-Text |
+| ASR | Qwen ASR, Deepgram, Google Cloud Speech-to-Text, Soniox ASR |
 | LLM | OpenAI-compatible chat completion providers |
 | Realtime MLLM | Qwen Omni Realtime |
+| Translation | Translator (Simultaneous MT with Volcengine, DeepL, and OpenAI-compatible LLMs) |
 | TTS | MiniMax, ElevenLabs, OpenAI TTS |
 | Control and utilities | Interrupter, TEN VAD, Caption, Markdown Filter, Sink |
 
@@ -222,6 +219,9 @@ Use [Plugin Development](docs/guides/plugin.md) to implement a local Go plugin. 
 | `POST /sessions/renew/{id}` | Renew an idle Session. |
 | `DELETE /sessions/{id}` | Stop and remove a Session. |
 | `GET /realtime/{id}` | Upgrade to the realtime WebSocket transport. |
+| `GET /webrtc/providers` | Discover available WebRTC providers (WTN, Cloudflare Calls). |
+| `POST /webrtc/{id}` | WebRTC WHIP/WHEP negotiation for realtime audio sessions. |
+| `POST /agora/{id}` | Attach a Session to Agora RTC/RTM channel and return credentials (standalone mode). |
 | `GET /metrics` | Export OpenTelemetry metrics in Prometheus format. |
 
 Voce also exposes a bidirectional gRPC stream defined in `api/voce/v1/voce.proto`.
